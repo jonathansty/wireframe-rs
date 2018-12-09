@@ -68,7 +68,7 @@ fn main() {
         unsafe {
             default_program = gl::CreateProgram();
             gl::AttachShader(default_program,vert );
-            gl::AttachShader(default_program,geom );
+            // gl::AttachShader(default_program,geom );
             gl::AttachShader(default_program,frag );
             gl::LinkProgram(default_program);
 
@@ -104,11 +104,29 @@ fn main() {
         println!("{} vertices, {} faces", first_mesh.num_vertices(), first_mesh.num_faces());
 
         for i in 0..first_mesh.num_vertices() {
-            let pos = first_mesh.get_vertex(i).unwrap();
-            // let col = first_mesh.get_vertex_color(i).unwrap();
+            let mut pos = assimp::Vector3D::new(0.0,0.0,0.0);
+            let mut norm = assimp::Vector3D::new(0.0,0.0,0.0);
+            let mut tan = assimp::Vector3D::new(0.0,0.0,0.0);
+            let mut bitangent = assimp::Vector3D::new(0.0,0.0,0.0);
+
+            if first_mesh.has_positions() {
+                pos = first_mesh.get_vertex(i).unwrap();
+            }
+
+            if first_mesh.has_normals() {
+                norm = first_mesh.get_normal(i).unwrap();
+            }
+
+            if first_mesh.has_tangents_and_bitangents() {
+                tan = first_mesh.get_tangent(i).unwrap();
+                bitangent = first_mesh.get_bitangent(i).unwrap();
+            }
 
             vertices.push(GlVert{
-               pos: [pos.x,pos.y,pos.y,1.0],
+               pos: [pos.x,pos.y,pos.z,1.0],
+               norm: [norm.x,norm.y,norm.z,0.0],
+               tangent: [tan.x,tan.y,tan.z,0.0],
+               bitangent: [bitangent.x,bitangent.y,bitangent.z,0.0],
                uv: [0.0,0.0],
             });
         }
@@ -163,6 +181,7 @@ fn main() {
 
     unsafe{
         gl::CullFace(gl::BACK);
+        // gl::Enable(gl::DEPTH_TEST);
     }
     // Run the application
     'app: loop {
@@ -180,14 +199,7 @@ fn main() {
 
             gl::UseProgram(default_program);
 
-            let mut vao = 0;
-            gl::GenVertexArrays(1, &mut vao);
-            gl::BindVertexArray(vao);
-            gl::EnableVertexArrayAttrib(vao, 0);
-            gl::VertexAttribPointer(0, 4, gl::FLOAT,gl::FALSE, std::mem::size_of::<GlVert>() as i32, std::ptr::null());
-
-            gl::EnableVertexArrayAttrib(vao, 1);
-            gl::VertexAttribPointer(1, 2, gl::FLOAT,gl::FALSE, std::mem::size_of::<GlVert>() as i32, (4*std::mem::size_of::<f32>()) as *const std::ffi::c_void);
+            let vao = GlVert::setup_vao();
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vtx_buffer);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, idx_buffer);
@@ -238,5 +250,34 @@ mod shaders{
 #[repr(C)]
 struct GlVert {
     pos : [f32;4],
+    norm : [f32;4],
+    tangent : [f32;4],
+    bitangent : [f32;4],
     uv  : [f32;2],
+}
+impl GlVert {
+    unsafe fn setup_vao() -> gl::types::GLuint {
+        let mut vao = 0;
+        gl::GenVertexArrays(1, &mut vao);
+        gl::BindVertexArray(vao);
+
+        let struct_size = std::mem::size_of::<GlVert>() as i32;
+        
+        gl::EnableVertexArrayAttrib(vao, 0);
+        gl::VertexAttribPointer(0, 4, gl::FLOAT,gl::FALSE, struct_size, std::ptr::null());
+
+        gl::EnableVertexArrayAttrib(vao, 1);
+        gl::VertexAttribPointer(1, 4, gl::FLOAT,gl::FALSE, struct_size, (4*std::mem::size_of::<f32>()) as *const std::ffi::c_void);
+
+        gl::EnableVertexArrayAttrib(vao, 2);
+        gl::VertexAttribPointer(2, 4, gl::FLOAT,gl::FALSE, struct_size, (8*std::mem::size_of::<f32>()) as *const std::ffi::c_void);
+
+        gl::EnableVertexArrayAttrib(vao, 3);
+        gl::VertexAttribPointer(3, 4, gl::FLOAT,gl::FALSE, struct_size, (12*std::mem::size_of::<f32>()) as *const std::ffi::c_void);
+
+        gl::EnableVertexArrayAttrib(vao, 4);
+        gl::VertexAttribPointer(4, 2, gl::FLOAT,gl::FALSE, struct_size, (16*std::mem::size_of::<f32>()) as *const std::ffi::c_void);
+
+        vao
+    }
 }
