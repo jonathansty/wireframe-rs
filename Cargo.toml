@@ -5,6 +5,7 @@ authors = ["Jonathan Steyfkens <jonathansty@users.noreply.github.com>"]
 edition = "2018"
 
 [dependencies]
+time = "*"
 gl = "0.6"
 
 [dependencies.sdl2]
@@ -13,3 +14,6 @@ features = ["bundled", "static-link"]
 
 [dependencies.assimp]
 version= "0.3.1"
+
+[dependencies.nalgebra]
+version = "0.16"

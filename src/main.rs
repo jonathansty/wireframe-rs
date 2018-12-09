@@ -1,8 +1,12 @@
 /// This app demonstrates different ways of rendering wireframes
 ///
 extern crate sdl2;
+extern crate time;
 extern crate gl;
 extern crate assimp;
+extern crate nalgebra as na;
+
+use time::PreciseTime;
 
 use gl::types::*;
 
@@ -22,8 +26,8 @@ fn main() {
         .build()
         .unwrap();
 
-    let gl_context = window.gl_create_context().unwrap();
-    let gl = gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as *const std::os::raw::c_void);
+    let _gl_context = window.gl_create_context().unwrap();
+    let _gl = gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as *const std::os::raw::c_void);
 
     unsafe {
         #[allow(unused_assignments)]
@@ -36,6 +40,7 @@ fn main() {
         gl::DebugMessageCallback(callback, std::ptr::null());
     }
     // Build some shaders
+    let shader_building = PreciseTime::now();
     let mut default_program = 0;
     {
         use std::ffi::CString;
@@ -90,8 +95,11 @@ fn main() {
             }
         }
     }
+    println!("Shader compiling and setup took {}ms",shader_building.to(PreciseTime::now()).num_milliseconds());
 
     // Load our mesh and setup buffers
+
+    let mesh_process_start = PreciseTime::now();
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     {
@@ -156,6 +164,8 @@ fn main() {
             }
         }
     }
+    let mesh_process_end = PreciseTime::now();
+    println!("Loading and processing the mesh took {}ms", mesh_process_start.to(mesh_process_end).num_milliseconds());
 
     // Construct our setup
     let mut vtx_buffer = 0;
@@ -171,6 +181,8 @@ fn main() {
         let buffer_size = indices.len() * std::mem::size_of::<u32>();
         gl::BufferData(gl::ELEMENT_ARRAY_BUFFER, buffer_size as isize, indices.as_ptr() as *const std::ffi::c_void, gl::STATIC_DRAW);
     }
+    let duration = mesh_process_end.to(PreciseTime::now());
+    println!("Submitting mesh data to GPU took {}ms", duration.num_milliseconds());
 
 
 
@@ -203,7 +215,7 @@ fn main() {
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vtx_buffer);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, idx_buffer);
-            gl::DrawElements(gl::TRIANGLES, indices.len() as gl::types::GLsizei, gl::UNSIGNED_INT, std::ptr::null());
+            gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
 
             gl::DeleteVertexArrays(1, &vao);
             // Render our loaded mesh with 
@@ -214,12 +226,13 @@ fn main() {
 }
 
 mod shaders{
+    use gl::types::*;
     use std::ffi::{CString, CStr};
 
-    pub fn shader_from_source(source : &CString, kind: gl::types::GLuint) -> Result<gl::types::GLuint, String> {
+    pub fn shader_from_source(source : &CString, kind: GLuint) -> Result<GLuint, String> {
         let id = unsafe{ gl::CreateShader(kind) };
         
-        let mut success : gl::types::GLint = 1;
+        let mut success : GLint = 1;
         unsafe{
             gl::ShaderSource(id, 1, &(source.as_ptr() as *const i8), std::ptr::null());
             gl::CompileShader(id);
@@ -256,7 +269,7 @@ struct GlVert {
     uv  : [f32;2],
 }
 impl GlVert {
-    unsafe fn setup_vao() -> gl::types::GLuint {
+    unsafe fn setup_vao() -> GLuint {
         let mut vao = 0;
         gl::GenVertexArrays(1, &mut vao);
         gl::BindVertexArray(vao);
