@@ -68,7 +68,7 @@ fn main() {
         unsafe {
             default_program = gl::CreateProgram();
             gl::AttachShader(default_program,vert );
-            // gl::AttachShader(default_program,geom );
+            gl::AttachShader(default_program,geom );
             gl::AttachShader(default_program,frag );
             gl::LinkProgram(default_program);
 
