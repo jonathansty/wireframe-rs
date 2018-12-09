@@ -10,6 +10,12 @@ use time::PreciseTime;
 
 use gl::types::*;
 
+enum WireframeMode {
+    DoublePass,
+    SinglePassNoCorrection,
+    SinglePassCorrection,
+} 
+
 fn main() {
     // Setup SDL2
     let sdl = sdl2::init().unwrap();
@@ -41,6 +47,7 @@ fn main() {
     }
     // Build some shaders
     let shader_building = PreciseTime::now();
+    let mut draw_mode = WireframeMode::SinglePassNoCorrection;
     let mut default_program = 0;
     let mut wireframe_program = 0;
     {
@@ -81,7 +88,7 @@ fn main() {
         unsafe {
             default_program = gl::CreateProgram();
             gl::AttachShader(default_program,vert );
-            // gl::AttachShader(default_program,geom );
+            gl::AttachShader(default_program,geom );
             gl::AttachShader(default_program,frag );
             gl::LinkProgram(default_program);
 
@@ -101,7 +108,7 @@ fn main() {
 
             wireframe_program = gl::CreateProgram(); 
             gl::AttachShader(wireframe_program,vert );
-            // gl::AttachShader(default_program,geom );
+           // gl::AttachShader(default_program,geom );
             gl::AttachShader(wireframe_program,wireframe_frag );
             gl::LinkProgram(wireframe_program);
 
@@ -226,24 +233,31 @@ fn main() {
     let aspect = window_size.0 as f32 / window_size.1 as f32;
 
     let projection = na::Mat4::new_perspective(aspect, 3.14/ 4.0, 0.01, 1000.0);
-    let camera = na::Mat4::new_translation(&na::Vec3::new(0.0,1.0, 5.0));
+    let view = na::look_at(&na::Vec3::new(3.0,1.8, 3.0), &na::Vec3::new(0.0,0.0,0.0), &na::Vec3::new(0.0,1.0,0.0));
     let model = na::Mat4::new_translation(&na::Vec3::new(0.0,0.0,0.0));
 
+    let start_time = time::precise_time_s();
     // Run the application
     'app: loop {
+        let elapsed = (time::precise_time_s() - start_time) as f32;
+
         for e in event_pump.poll_iter() {
            match e {
                 sdl2::event::Event::Quit {..} => { break 'app; }
                 _ => {}
             }
         }
+        let model = na::rotation(elapsed, &na::Vec3::new(0.0,1.0,0.0));
 
         let size = window.size();
         unsafe{
             gl::Viewport(0,0,size.0 as i32, size.1 as i32);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-            let final_mat = projection * na::inverse(&camera);
+            let final_mat = projection * &view * model;
+            use std::ffi::CString;
+            let model_loc = gl::GetUniformLocation(default_program, CString::new("model").unwrap().as_ptr());
+            let vp_loc = gl::GetUniformLocation(default_program, CString::new("projection").unwrap().as_ptr());
 
             let vao = GlVert::setup_vao();
 
@@ -252,16 +266,17 @@ fn main() {
 
             gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
             gl::UseProgram(default_program);
-            gl::UniformMatrix4fv(0, 1, gl::FALSE, final_mat.as_slice().as_ptr());
+            gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
+            gl::UniformMatrix4fv(model_loc,1, gl::FALSE, model.as_slice().as_ptr());
             gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
 
             // Second draw
-            gl::Disable(gl::DEPTH_TEST);
-            gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
-            gl::UseProgram(wireframe_program);
-            gl::UniformMatrix4fv(0, 1, gl::FALSE, final_mat.as_slice().as_ptr());
-            gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
-            gl::Enable(gl::DEPTH_TEST);
+            // gl::Disable(gl::DEPTH_TEST);
+            // gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
+            // gl::UseProgram(wireframe_program);
+            // gl::UniformMatrix4fv(0, 1, gl::FALSE, final_mat.as_slice().as_ptr());
+            // gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
+            // gl::Enable(gl::DEPTH_TEST);
 
             gl::DeleteVertexArrays(1, &vao);
             // Render our loaded mesh with 

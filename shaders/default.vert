@@ -10,8 +10,10 @@ layout(location = 0) out vec4 out_normal;
 layout(location = 1) out vec4 out_tangent;
 layout(location = 2) out vec4 out_bitangent;
 layout(location = 3) out vec2 out_uv;
+layout(location = 4) out vec3 out_world_normal;
 
 uniform mat4 projection;
+uniform mat4 model;
 
 // FUTURE: https://learnopengl.com/Lighting/Basic-Lighting
 void main() {
@@ -19,6 +21,7 @@ void main() {
     out_tangent = tangent;
     out_bitangent = bitangent;
     out_uv = uv;
+    out_world_normal = mat3(model) * normal.xyz;
 
     // Output hardware position
     vec4 pos = projection * position;
