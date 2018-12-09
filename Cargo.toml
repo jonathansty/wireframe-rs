@@ -11,3 +11,5 @@ gl = "0.6"
 version = "0.32"
 features = ["bundled", "static-link"]
 
+[dependencies.assimp]
+version= "0.3.1"

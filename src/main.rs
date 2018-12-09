@@ -2,10 +2,12 @@
 ///
 extern crate sdl2;
 extern crate gl;
+extern crate assimp;
 
 use gl::types::*;
 
 fn main() {
+    // Setup SDL2
     let sdl = sdl2::init().unwrap();
     let video_subsystem = sdl.video().unwrap();
     let gl_attr = video_subsystem.gl_attr();
@@ -77,10 +79,27 @@ fn main() {
         }
     }
 
+    // Load our mesh and setup buffers
+    {
+        use assimp::Importer;
+        let importer = Importer::new();
+        let scene = importer.read_file("assets/suzanne.fbx").unwrap();
+        println!("Loaded scene with {} meshes", scene.num_meshes());
+
+        let first_mesh = scene.mesh(0).unwrap();
+        println!("{} vertices, {} faces", first_mesh.num_vertices(), first_mesh.num_faces());
+
+        // Construct our setup
+
+    }
+
+
     let mut event_pump = sdl.event_pump().unwrap();
     unsafe{
         gl::ClearColor(0.3,0.3,0.3,1.0);
     }
+
+    // Run the application
     'app: loop {
         for e in event_pump.poll_iter() {
            match e {
@@ -94,6 +113,8 @@ fn main() {
             gl::Viewport(0,0,size.0 as i32, size.1 as i32);
             gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::UseProgram(default_program);
+
+            // Render our loaded mesh with 
         }
 
         window.gl_swap_window();
@@ -132,4 +153,10 @@ mod shaders{
         }
         Ok(id)
     }
+}
+
+#[repr(C)]
+struct GlVert {
+    pos : [f32;4],
+    uv  : [f32;2],
 }
