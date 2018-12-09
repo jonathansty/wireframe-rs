@@ -181,7 +181,7 @@ fn main() {
 
     unsafe{
         gl::CullFace(gl::BACK);
-        // gl::Enable(gl::DEPTH_TEST);
+        gl::Enable(gl::DEPTH_TEST);
     }
     // Run the application
     'app: loop {
@@ -195,7 +195,7 @@ fn main() {
         let size = window.size();
         unsafe{
             gl::Viewport(0,0,size.0 as i32, size.1 as i32);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
+            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
             gl::UseProgram(default_program);
 
