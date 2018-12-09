@@ -4,7 +4,7 @@ extern crate sdl2;
 extern crate time;
 extern crate gl;
 extern crate assimp;
-extern crate nalgebra as na;
+extern crate nalgebra_glm as na;
 
 use time::PreciseTime;
 
@@ -42,11 +42,13 @@ fn main() {
     // Build some shaders
     let shader_building = PreciseTime::now();
     let mut default_program = 0;
+    let mut wireframe_program = 0;
     {
         use std::ffi::CString;
-        let vertex_source = CString::new(include_str!("default.vert")).unwrap();
-        let fragment_source = CString::new(include_str!("default.frag")).unwrap();
-        let geom_source = CString::new(include_str!("default.geom")).unwrap();
+        let vertex_source = CString::new(include_str!("../shaders/default.vert")).unwrap();
+        let fragment_source = CString::new(include_str!("../shaders/default.frag")).unwrap();
+        let geom_source = CString::new(include_str!("../shaders/default.geom")).unwrap();
+        let wireframe_source = CString::new(include_str!("../shaders/wireframe.frag")).unwrap();
 
         let vert = match shaders::shader_from_source(&vertex_source, gl::VERTEX_SHADER) {
             Ok(shader) => shader,
@@ -59,6 +61,12 @@ fn main() {
             Ok(e) => e,
             Err(e) =>{ 
                 panic!("Failed to compile shader with following log:\n {}", e);
+            }
+        };
+        let wireframe_frag = match shaders::shader_from_source(&wireframe_source, gl::FRAGMENT_SHADER) {
+            Ok(e) => e,
+            Err(e) => {
+                panic!("Failed to compile wireframe shader.")
             }
         };
 
@@ -77,9 +85,6 @@ fn main() {
             gl::AttachShader(default_program,frag );
             gl::LinkProgram(default_program);
 
-            gl::DeleteShader(vert);
-            gl::DeleteShader(frag);
-
             gl::GetProgramiv(default_program, gl::LINK_STATUS, &mut success);
             if success == 0 {
                 let mut len = 0;
@@ -93,6 +98,27 @@ fn main() {
                     default_program,len, std::ptr::null_mut(), error.as_ptr() as *mut gl::types::GLchar
                 );
             }
+
+            wireframe_program = gl::CreateProgram(); 
+            gl::AttachShader(wireframe_program,vert );
+            // gl::AttachShader(default_program,geom );
+            gl::AttachShader(wireframe_program,wireframe_frag );
+            gl::LinkProgram(wireframe_program);
+
+            gl::GetProgramiv(wireframe_program, gl::LINK_STATUS, &mut success);
+            if success == 0 {
+                let mut len = 0;
+                gl::GetProgramiv(wireframe_program, gl::INFO_LOG_LENGTH, &mut len);
+
+                let mut buffer = Vec::with_capacity(len as usize + 1);
+                buffer.extend([b' '].iter().cycle().take(len as usize));
+
+                let error =  CString::from_vec_unchecked(buffer);
+                gl::GetProgramInfoLog(
+                    wireframe_program,len, std::ptr::null_mut(), error.as_ptr() as *mut gl::types::GLchar
+                );
+            }
+
         }
     }
     println!("Shader compiling and setup took {}ms",shader_building.to(PreciseTime::now()).num_milliseconds());
@@ -105,7 +131,7 @@ fn main() {
     {
         use assimp::Importer;
         let importer = Importer::new();
-        let scene = importer.read_file("assets/suzanne.fbx").unwrap();
+        let scene = importer.read_file("assets/suzanne.obj").unwrap();
         println!("Loaded scene with {} meshes", scene.num_meshes());
 
         let first_mesh = scene.mesh(0).unwrap();
@@ -195,6 +221,14 @@ fn main() {
         gl::CullFace(gl::BACK);
         gl::Enable(gl::DEPTH_TEST);
     }
+
+    let window_size = window.size();
+    let aspect = window_size.0 as f32 / window_size.1 as f32;
+
+    let projection = na::Mat4::new_perspective(aspect, 3.14/ 4.0, 0.01, 1000.0);
+    let camera = na::Mat4::new_translation(&na::Vec3::new(0.0,1.0, 5.0));
+    let model = na::Mat4::new_translation(&na::Vec3::new(0.0,0.0,0.0));
+
     // Run the application
     'app: loop {
         for e in event_pump.poll_iter() {
@@ -209,13 +243,25 @@ fn main() {
             gl::Viewport(0,0,size.0 as i32, size.1 as i32);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-            gl::UseProgram(default_program);
+            let final_mat = projection * na::inverse(&camera);
 
             let vao = GlVert::setup_vao();
 
             gl::BindBuffer(gl::ARRAY_BUFFER, vtx_buffer);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, idx_buffer);
+
+            gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
+            gl::UseProgram(default_program);
+            gl::UniformMatrix4fv(0, 1, gl::FALSE, final_mat.as_slice().as_ptr());
             gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
+
+            // Second draw
+            gl::Disable(gl::DEPTH_TEST);
+            gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
+            gl::UseProgram(wireframe_program);
+            gl::UniformMatrix4fv(0, 1, gl::FALSE, final_mat.as_slice().as_ptr());
+            gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
+            gl::Enable(gl::DEPTH_TEST);
 
             gl::DeleteVertexArrays(1, &vao);
             // Render our loaded mesh with 

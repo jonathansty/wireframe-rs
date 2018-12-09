@@ -15,5 +15,5 @@ features = ["bundled", "static-link"]
 [dependencies.assimp]
 version= "0.3.1"
 
-[dependencies.nalgebra]
-version = "0.16"
+[dependencies.nalgebra-glm]
+version = "0.1"
