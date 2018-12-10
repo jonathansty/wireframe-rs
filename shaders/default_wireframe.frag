@@ -23,6 +23,11 @@ void main() {
     float D = clamp(calculate_diffuse(L, world_normal.xyz),0.0,1.0);
     vec3 object = vec3(1,1,1);
 
+    vec3 wireframe = vec3(0,0,0);
     vec3 final_color = ambient*object + D*object;
-    color = vec4(final_color.xyz, 1.0);
+    float d = min(coord.x, coord.y);
+    d = min(d, coord.z);
+    d = smoothstep(0.01, 0.03, d);
+
+    color = vec4(mix(final_color, wireframe, 1.0 - d), 1);
 }

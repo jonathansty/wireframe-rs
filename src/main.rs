@@ -11,7 +11,7 @@ use time::PreciseTime;
 use gl::types::*;
 
 enum WireframeMode {
-    DoublePass,
+    MultiPass,
     SinglePassNoCorrection,
     SinglePassCorrection,
 } 
@@ -50,12 +50,14 @@ fn main() {
     let mut draw_mode = WireframeMode::SinglePassNoCorrection;
     let mut default_program = 0;
     let mut wireframe_program = 0;
+    let mut wireframe_singlepass = 0;
     {
         use std::ffi::CString;
         let vertex_source = CString::new(include_str!("../shaders/default.vert")).unwrap();
         let fragment_source = CString::new(include_str!("../shaders/default.frag")).unwrap();
         let geom_source = CString::new(include_str!("../shaders/default.geom")).unwrap();
         let wireframe_source = CString::new(include_str!("../shaders/wireframe.frag")).unwrap();
+        let geom_wireframe_source = CString::new(include_str!("../shaders/default_wireframe.frag")).unwrap();
 
         let vert = match shaders::shader_from_source(&vertex_source, gl::VERTEX_SHADER) {
             Ok(shader) => shader,
@@ -70,7 +72,15 @@ fn main() {
                 panic!("Failed to compile shader with following log:\n {}", e);
             }
         };
+
         let wireframe_frag = match shaders::shader_from_source(&wireframe_source, gl::FRAGMENT_SHADER) {
+            Ok(e) => e,
+            Err(e) => {
+                panic!("Failed to compile wireframe shader.")
+            }
+        };
+
+        let geom_wireframe_frag = match shaders::shader_from_source(&geom_wireframe_source, gl::FRAGMENT_SHADER) {
             Ok(e) => e,
             Err(e) => {
                 panic!("Failed to compile wireframe shader.")
@@ -86,9 +96,9 @@ fn main() {
 
         let mut success = 1;
         unsafe {
+            // Create default shaded drawing program
             default_program = gl::CreateProgram();
             gl::AttachShader(default_program,vert );
-            gl::AttachShader(default_program,geom );
             gl::AttachShader(default_program,frag );
             gl::LinkProgram(default_program);
 
@@ -106,9 +116,9 @@ fn main() {
                 );
             }
 
+            // Create Solid color black program!
             wireframe_program = gl::CreateProgram(); 
             gl::AttachShader(wireframe_program,vert );
-           // gl::AttachShader(default_program,geom );
             gl::AttachShader(wireframe_program,wireframe_frag );
             gl::LinkProgram(wireframe_program);
 
@@ -126,6 +136,26 @@ fn main() {
                 );
             }
 
+            // Create singlepass wireframe program
+            wireframe_singlepass = gl::CreateProgram(); 
+            gl::AttachShader(wireframe_singlepass,vert );
+            gl::AttachShader(wireframe_singlepass,geom );
+            gl::AttachShader(wireframe_singlepass,geom_wireframe_frag );
+            gl::LinkProgram(wireframe_singlepass);
+
+            gl::GetProgramiv(wireframe_singlepass, gl::LINK_STATUS, &mut success);
+            if success == 0 {
+                let mut len = 0;
+                gl::GetProgramiv(wireframe_singlepass, gl::INFO_LOG_LENGTH, &mut len);
+
+                let mut buffer = Vec::with_capacity(len as usize + 1);
+                buffer.extend([b' '].iter().cycle().take(len as usize));
+
+                let error =  CString::from_vec_unchecked(buffer);
+                gl::GetProgramInfoLog(
+                    wireframe_singlepass,len, std::ptr::null_mut(), error.as_ptr() as *mut gl::types::GLchar
+                );
+            }
         }
     }
     println!("Shader compiling and setup took {}ms",shader_building.to(PreciseTime::now()).num_milliseconds());
@@ -242,8 +272,22 @@ fn main() {
         let elapsed = (time::precise_time_s() - start_time) as f32;
 
         for e in event_pump.poll_iter() {
+            use sdl2::event::Event;
+            use sdl2::keyboard::Keycode;
            match e {
-                sdl2::event::Event::Quit {..} => { break 'app; }
+                Event::Quit {..} => { break 'app; }
+                Event::KeyDown{ keycode: Some(Keycode::Num1), .. } => {
+                    println!("Switching to single pass no correction");
+                    draw_mode = WireframeMode::SinglePassNoCorrection;
+                    },
+                Event::KeyDown{ keycode: Some(Keycode::Num2), .. } => {
+                    draw_mode = WireframeMode::SinglePassCorrection; 
+                    println!("Switching to singlepass with correction");
+                },
+                Event::KeyDown{ keycode: Some(Keycode::Num3), .. } => {
+                    draw_mode = WireframeMode::MultiPass;
+                    println!("Switching to multipass");
+                    },
                 _ => {}
             }
         }
@@ -256,27 +300,49 @@ fn main() {
 
             let final_mat = projection * &view * model;
             use std::ffi::CString;
-            let model_loc = gl::GetUniformLocation(default_program, CString::new("model").unwrap().as_ptr());
-            let vp_loc = gl::GetUniformLocation(default_program, CString::new("projection").unwrap().as_ptr());
 
             let vao = GlVert::setup_vao();
-
             gl::BindBuffer(gl::ARRAY_BUFFER, vtx_buffer);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, idx_buffer);
+            match draw_mode {
+                WireframeMode::SinglePassNoCorrection => {
+                    let model_loc = gl::GetUniformLocation(wireframe_singlepass, CString::new("model").unwrap().as_ptr());
+                    let vp_loc    = gl::GetUniformLocation(wireframe_singlepass, CString::new("projection").unwrap().as_ptr());
 
-            gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
-            gl::UseProgram(default_program);
-            gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
-            gl::UniformMatrix4fv(model_loc,1, gl::FALSE, model.as_slice().as_ptr());
-            gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
+                    gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
+                    gl::UseProgram(wireframe_singlepass);
+                    gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
+                    gl::UniformMatrix4fv(model_loc,1, gl::FALSE, model.as_slice().as_ptr());
+                    gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
+                },
+                WireframeMode::SinglePassCorrection => {
 
-            // Second draw
-            // gl::Disable(gl::DEPTH_TEST);
-            // gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
-            // gl::UseProgram(wireframe_program);
-            // gl::UniformMatrix4fv(0, 1, gl::FALSE, final_mat.as_slice().as_ptr());
-            // gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
-            // gl::Enable(gl::DEPTH_TEST);
+                },
+                WireframeMode::MultiPass => {
+                    let model_loc = gl::GetUniformLocation(default_program, CString::new("model").unwrap().as_ptr());
+                    let vp_loc    = gl::GetUniformLocation(default_program, CString::new("projection").unwrap().as_ptr());
+                    // First draw
+                    gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
+                    gl::UseProgram(default_program);
+                    gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
+                    gl::UniformMatrix4fv(model_loc,1, gl::FALSE, model.as_slice().as_ptr());
+                    gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
+
+                    let model_loc = gl::GetUniformLocation(wireframe_program, CString::new("model").unwrap().as_ptr());
+                    let vp_loc    = gl::GetUniformLocation(wireframe_program, CString::new("projection").unwrap().as_ptr());
+                    // Second draw
+                    // gl::Disable(gl::DEPTH_TEST);
+                    gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
+                    gl::UseProgram(wireframe_program);
+                    gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
+                    gl::UniformMatrix4fv(model_loc, 1, gl::FALSE, model.as_slice().as_ptr());
+                    gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
+                    // gl::Enable(gl::DEPTH_TEST);
+                }
+            }
+
+
+
 
             gl::DeleteVertexArrays(1, &vao);
             // Render our loaded mesh with 
