@@ -48,6 +48,8 @@ fn main() {
     // Build some shaders
     let shader_building = PreciseTime::now();
     let mut draw_mode = WireframeMode::SinglePassNoCorrection;
+    let mut paused = false;
+
     let mut default_program = 0;
     let mut wireframe_program = 0;
     let mut wireframe_singlepass = 0;
@@ -266,10 +268,18 @@ fn main() {
     let view = na::look_at(&na::Vec3::new(3.0,1.8, 3.0), &na::Vec3::new(0.0,0.0,0.0), &na::Vec3::new(0.0,1.0,0.0));
     let model = na::Mat4::new_translation(&na::Vec3::new(0.0,0.0,0.0));
 
-    let start_time = time::precise_time_s();
+    let mut start_time = time::precise_time_s();
+    let mut elapsed : f32 = 0.0;
+    let mut curr_time = 0.0;
     // Run the application
     'app: loop {
-        let elapsed = (time::precise_time_s() - start_time) as f32;
+        let prev_time = curr_time;
+        curr_time = time::precise_time_s();
+
+        let dt = (curr_time - prev_time) as f32;
+        if !paused {
+            elapsed += dt;
+        }
 
         for e in event_pump.poll_iter() {
             use sdl2::event::Event;
@@ -288,12 +298,17 @@ fn main() {
                     draw_mode = WireframeMode::MultiPass;
                     println!("Switching to multipass");
                     },
+                Event::KeyDown{ keycode: Some(Keycode::P), ..}=>{
+                        paused = !paused
+                },
                 _ => {}
             }
         }
         let model = na::rotation(elapsed, &na::Vec3::new(0.0,1.0,0.0));
 
         let size = window.size();
+        let aspect = size.0 as f32 / size.1 as f32;
+        let projection = na::Mat4::new_perspective(aspect, 3.14/ 4.0, 0.01, 1000.0);
         unsafe{
             gl::Viewport(0,0,size.0 as i32, size.1 as i32);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);

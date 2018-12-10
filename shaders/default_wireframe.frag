@@ -9,25 +9,32 @@ layout(location = 5) in vec3 coord;
 
 out vec4 color;
 
-vec3 light = vec3(0.33, 0.33, 0.33);
-vec3 light_color = vec3(1,1,1);
+uniform float u_thickness = 0.005;
+uniform float u_falloff = 0.005;
+
+uniform vec3 u_object_color = vec3(1,1,1);
+uniform vec3 u_wireframe_color = vec3(0,0,0);
+
+uniform vec3 light = vec3(0.33, 0.33, 0.33);
+uniform vec3 light_color = vec3(1,1,1);
+uniform float ambient_strength = 0.05;
 float calculate_diffuse(vec3 L, vec3 N){
     return dot(N,L);
 }
 
 void main() {
-    float strength = 0.05;
-    vec3 ambient = strength * light_color;
+    vec3 ambient = ambient_strength * light_color;
 
-    vec3 L = normalize(light);
+    vec3  L = normalize(light);
     float D = clamp(calculate_diffuse(L, world_normal.xyz),0.0,1.0);
-    vec3 object = vec3(1,1,1);
 
-    vec3 wireframe = vec3(0,0,0);
+    // Calculate the final "lit" color
+    vec3 object = u_object_color;
     vec3 final_color = ambient*object + D*object;
-    float d = min(coord.x, coord.y);
-    d = min(d, coord.z);
-    d = smoothstep(0.01, 0.03, d);
 
-    color = vec4(mix(final_color, wireframe, 1.0 - d), 1);
+    // Get the minimum distance
+    float d = min(coord.x, min(coord.y, coord.z));
+    d = smoothstep(u_thickness, u_thickness + u_falloff, d);
+
+    color = vec4(mix(final_color, u_wireframe_color, 1.0 - d), 1);
 }
