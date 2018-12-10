@@ -9,8 +9,8 @@ layout(location = 5) in vec3 coord;
 
 out vec4 color;
 
-uniform float u_thickness = 0.005;
-uniform float u_falloff = 0.005;
+uniform float u_thickness = 0.02;
+uniform float u_falloff = 0.003;
 
 uniform vec3 u_object_color = vec3(1,1,1);
 uniform vec3 u_wireframe_color = vec3(0,0,0);

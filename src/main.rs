@@ -35,6 +35,9 @@ fn main() {
     let _gl_context = window.gl_create_context().unwrap();
     let _gl = gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as *const std::os::raw::c_void);
 
+    // Disable vsync
+    video_subsystem.gl_set_swap_interval(0);
+
     unsafe {
         #[allow(unused_assignments)]
         extern "system" fn callback(_source : u32, _gltype : u32, _id : u32, _severity : u32, _length : i32, message : *const i8, _user_param : *mut std::ffi::c_void){
@@ -269,14 +272,14 @@ fn main() {
     let model = na::Mat4::new_translation(&na::Vec3::new(0.0,0.0,0.0));
 
     let mut start_time = time::precise_time_s();
-    let mut elapsed : f32 = 0.0;
+    let mut elapsed = 0.0;
     let mut curr_time = 0.0;
     // Run the application
     'app: loop {
         let prev_time = curr_time;
         curr_time = time::precise_time_s();
 
-        let dt = (curr_time - prev_time) as f32;
+        let dt = (curr_time - prev_time);
         if !paused {
             elapsed += dt;
         }
@@ -304,7 +307,7 @@ fn main() {
                 _ => {}
             }
         }
-        let model = na::rotation(elapsed, &na::Vec3::new(0.0,1.0,0.0));
+        let model = na::rotation(elapsed as f32, &na::Vec3::new(0.0,1.0,0.0));
 
         let size = window.size();
         let aspect = size.0 as f32 / size.1 as f32;
@@ -320,18 +323,25 @@ fn main() {
             gl::BindBuffer(gl::ARRAY_BUFFER, vtx_buffer);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, idx_buffer);
             match draw_mode {
-                WireframeMode::SinglePassNoCorrection => {
+                WireframeMode::SinglePassNoCorrection | WireframeMode::SinglePassCorrection => {
+                    let u_correction = gl::GetUniformLocation(wireframe_singlepass, CString::new("u_correction").unwrap().as_ptr());
                     let model_loc = gl::GetUniformLocation(wireframe_singlepass, CString::new("model").unwrap().as_ptr());
                     let vp_loc    = gl::GetUniformLocation(wireframe_singlepass, CString::new("projection").unwrap().as_ptr());
 
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
                     gl::UseProgram(wireframe_singlepass);
+                    match draw_mode{
+                        WireframeMode::SinglePassNoCorrection => {
+                            gl::Uniform1iv(u_correction, 1, &1);
+                        },
+                        _ => {
+                            gl::Uniform1iv(u_correction, 1, &0);
+                        }
+                    }
+
                     gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
                     gl::UniformMatrix4fv(model_loc,1, gl::FALSE, model.as_slice().as_ptr());
                     gl::DrawElements(gl::TRIANGLES, indices.len() as GLsizei, gl::UNSIGNED_INT, std::ptr::null());
-                },
-                WireframeMode::SinglePassCorrection => {
-
                 },
                 WireframeMode::MultiPass => {
                     let model_loc = gl::GetUniformLocation(default_program, CString::new("model").unwrap().as_ptr());

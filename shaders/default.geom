@@ -17,7 +17,7 @@ layout(location = 3) out vec2 out_uv;
 layout(location = 4) out vec3 out_world_normal;
 layout(location = 5) out vec3 out_coord;
 
-uniform bool u_no_correction = false;
+uniform int u_correction = 0;
 
 // Calculates the height between p0 and  the edge formed by p1 and p2
 float calculate_height(vec4 p0, vec4 p1, vec4 p2){
@@ -40,7 +40,7 @@ void main() {
     out_coord = vec3(1,0,0);
     out_world_normal = world_normal[0];
 
-    if (!u_no_correction)
+    if (u_correction == 1)
     {
         out_coord = vec3(calculate_height(p0,p1,p2),0,0);
     }
@@ -55,7 +55,7 @@ void main() {
     out_world_normal = world_normal[1];
 
     // Calculate height
-    if(!u_no_correction)
+    if (u_correction == 1)
     {
         out_coord = vec3(0,calculate_height(p1,p2,p0),0);
     }
@@ -67,7 +67,7 @@ void main() {
     out_bitangent = bitangent[2];
     out_uv = uv[2];
     out_coord = vec3(0,0,1);
-    if(!u_no_correction)
+    if(u_correction == 1)
     {
         out_coord = vec3(0,0,calculate_height(p2,p0,p1));
     }
