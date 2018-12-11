@@ -53,14 +53,16 @@ fn main() {
             _source: u32,
             _gltype: u32,
             _id: u32,
-            _severity: u32,
+            severity: u32,
             _length: i32,
             message: *const i8,
             _user_param: *mut std::ffi::c_void,
         ) {
-            unsafe {
-                let string = std::ffi::CStr::from_ptr(message);
-                println!("{}", string.to_str().unwrap());
+            if severity != gl::DEBUG_SEVERITY_NOTIFICATION{
+                unsafe {
+                    let string = std::ffi::CStr::from_ptr(message);
+                    println!("{}", string.to_str().unwrap());
+                }
             }
         }
         gl::Enable(gl::DEBUG_OUTPUT);
@@ -208,7 +210,8 @@ fn main() {
     {
         use assimp::Importer;
         let importer = Importer::new();
-        let scene = importer.read_file("assets/suzanne.obj").unwrap();
+        // let scene = importer.read_file("assets/cube.obj").unwrap();
+        let scene = importer.read_file("assets/cube.obj").unwrap();
         println!("Loaded scene with {} meshes", scene.num_meshes());
 
         let first_mesh = scene.mesh(0).unwrap();
@@ -276,11 +279,11 @@ fn main() {
     );
 
     // Construct our setup
-    let mut vtx_buffer = 0;
-    let mut idx_buffer = 0;
+    let mut suzanne_vertex_buffer = 0;
+    let mut suzanne_index_buffer = 0;
     unsafe {
-        gl::GenBuffers(1, &mut vtx_buffer);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vtx_buffer);
+        gl::GenBuffers(1, &mut suzanne_vertex_buffer);
+        gl::BindBuffer(gl::ARRAY_BUFFER, suzanne_vertex_buffer);
         let buffer_size = vertices.len() * std::mem::size_of::<GlVert>();
         gl::BufferData(
             gl::ARRAY_BUFFER,
@@ -289,8 +292,8 @@ fn main() {
             gl::STATIC_DRAW,
         );
 
-        gl::GenBuffers(1, &mut idx_buffer);
-        gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, idx_buffer);
+        gl::GenBuffers(1, &mut suzanne_index_buffer);
+        gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, suzanne_index_buffer);
         let buffer_size = indices.len() * std::mem::size_of::<u32>();
         gl::BufferData(
             gl::ELEMENT_ARRAY_BUFFER,
@@ -299,6 +302,8 @@ fn main() {
             gl::STATIC_DRAW,
         );
     }
+    let suzanne_vao = unsafe{ GlVert::setup_vao(suzanne_vertex_buffer)};
+
     let duration = mesh_process_end.to(PreciseTime::now());
     println!(
         "Submitting mesh data to GPU took {}ms",
@@ -313,6 +318,9 @@ fn main() {
     unsafe {
         gl::CullFace(gl::BACK);
         gl::Enable(gl::DEPTH_TEST);
+
+        gl::Enable(gl::BLEND);
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);  
     }
 
     let window_size = window.size();
@@ -334,7 +342,7 @@ fn main() {
         let prev_time = curr_time;
         curr_time = time::precise_time_s();
 
-        let dt = (curr_time - prev_time);
+        let dt = curr_time - prev_time;
         if !paused {
             elapsed += dt;
         }
@@ -390,6 +398,15 @@ fn main() {
                 .size((300.0,100.0), ImGuiCond::FirstUseEver)
                 .build(||{
                     ui.text(im_str!("Hello!"));
+                    ui.text(im_str!("Hello world 2"));
+                    ui.text(im_str!("Where is my next hello?"));
+                    if ui.button(im_str!("MORE BYUTT"), imgui::ImVec2::new(100.0,100.0)) {
+                        draw_mode = match draw_mode {
+                            WireframeMode::SinglePassNoCorrection => WireframeMode::SinglePassCorrection,
+                            WireframeMode::SinglePassCorrection => WireframeMode::MultiPass,
+                            WireframeMode::MultiPass => WireframeMode::SinglePassNoCorrection,
+                        }
+                    }
                 });
         }
 
@@ -397,6 +414,7 @@ fn main() {
         let model = na::rotation(elapsed as f32, &na::Vec3::new(0.0, 1.0, 0.0));
         let aspect = size.0 as f32 / size.1 as f32;
         let projection = na::Mat4::new_perspective(aspect, 3.14 / 4.0, 0.01, 1000.0);
+
         unsafe {
             gl::Viewport(0, 0, size.0 as i32, size.1 as i32);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
@@ -404,9 +422,9 @@ fn main() {
             let final_mat = projection * &view * model;
             use std::ffi::CString;
 
-            let vao = GlVert::setup_vao();
-            gl::BindBuffer(gl::ARRAY_BUFFER, vtx_buffer);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, idx_buffer);
+            gl::BindVertexArray(suzanne_vao);
+            // Still need to bind index buffer
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, suzanne_index_buffer);
             match draw_mode {
                 WireframeMode::SinglePassNoCorrection | WireframeMode::SinglePassCorrection => {
                     let u_correction = gl::GetUniformLocation(
@@ -487,18 +505,21 @@ fn main() {
                 }
             }
 
-            gl::DeleteVertexArrays(1, &vao);
-
             // Start IMGUI rendering
-            imgui_renderer.render(ui);
-            // render_ui(&ui);
+            let window_size = window.size();
+            let width = window.size().0 as f32;
+            let height = window.size().1 as f32;
+                     let matrix = na::Mat4::from([
+                            [(2.0 / width) as f32, 0.0, 0.0, 0.0],
+                            [0.0, -(2.0 / height) as f32, 0.0, 0.0],
+                            [0.0, 0.0, -1.0, 0.0],
+                            [-1.0, 1.0, 0.0, 1.0],
+                ]);
+            imgui_renderer.render(&matrix, ui);
         }
 
         window.gl_swap_window();
     }
-}
-pub fn render_ui(ui : &imgui::Ui){
-
 }
 
 mod shaders {
@@ -548,10 +569,12 @@ struct GlVert {
     uv: [f32; 2],
 }
 impl GlVert {
-    unsafe fn setup_vao() -> GLuint {
+    unsafe fn setup_vao(vtx : GLuint) -> GLuint {
         let mut vao = 0;
         gl::GenVertexArrays(1, &mut vao);
+
         gl::BindVertexArray(vao);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vtx);
 
         let struct_size = std::mem::size_of::<GlVert>() as i32;
 
@@ -598,6 +621,7 @@ impl GlVert {
             (16 * std::mem::size_of::<f32>()) as *const std::ffi::c_void,
         );
 
+        gl::BindBuffer(gl::ARRAY_BUFFER, 0);
         vao
     }
 }
