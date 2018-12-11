@@ -63,6 +63,7 @@ fn main() {
                 println!("{}", string.to_str().unwrap());
             }
         }
+        gl::Enable(gl::DEBUG_OUTPUT);
         gl::DebugMessageCallback(callback, std::ptr::null());
     }
 
@@ -343,7 +344,7 @@ fn main() {
             use sdl2::keyboard::Keycode;
 
             // Handle the input events for IMGUI first
-            imgui_renderer.handle_event(&e);
+            imgui_renderer.handle_event(&mut imgui, &e);
 
             match e {
                 Event::Quit { .. } => {
@@ -380,7 +381,7 @@ fn main() {
 
         let size = window.size();
         let frame_size = imgui::FrameSize{logical_size: (size.0 as f64, size.1 as f64), hidpi_factor: 1.0};
-        let ui = imgui_renderer.imgui().frame(frame_size, dt as f32);
+        let ui = imgui.frame(frame_size, dt as f32);
         // #TODO: proper structuring needed for the ui, for now do inline ui render
         {
             use imgui::im_str;
@@ -489,10 +490,15 @@ fn main() {
             gl::DeleteVertexArrays(1, &vao);
 
             // Start IMGUI rendering
+            imgui_renderer.render(ui);
+            // render_ui(&ui);
         }
 
         window.gl_swap_window();
     }
+}
+pub fn render_ui(ui : &imgui::Ui){
+
 }
 
 mod shaders {
