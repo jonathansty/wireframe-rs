@@ -10,6 +10,7 @@ extern crate time;
 mod imgui_gl;
 
 use imgui::ImGui;
+use std::ffi::CString;
 use std::mem;
 use time::PreciseTime;
 
@@ -17,9 +18,10 @@ use gl::types::*;
 
 // Mode to control what program to use
 enum WireframeMode {
-    MultiPass,
-    SinglePassNoCorrection,
+    None,
+    SinglePass,
     SinglePassCorrection,
+    MultiPass,
 }
 
 fn main() {
@@ -58,7 +60,7 @@ fn main() {
             message: *const i8,
             _user_param: *mut std::ffi::c_void,
         ) {
-            if severity != gl::DEBUG_SEVERITY_NOTIFICATION{
+            if severity != gl::DEBUG_SEVERITY_NOTIFICATION {
                 unsafe {
                     let string = std::ffi::CStr::from_ptr(message);
                     println!("{}", string.to_str().unwrap());
@@ -75,7 +77,7 @@ fn main() {
 
     // Build some shaders
     let shader_building = PreciseTime::now();
-    let mut draw_mode = WireframeMode::SinglePassNoCorrection;
+    let mut draw_mode = WireframeMode::None;
     let mut paused = false;
 
     // Create the default shader programs
@@ -108,13 +110,13 @@ fn main() {
         let wireframe_frag =
             match shaders::shader_from_source(&wireframe_source, gl::FRAGMENT_SHADER) {
                 Ok(e) => e,
-                Err(e) => panic!("Failed to compile wireframe shader."),
+                Err(_e) => panic!("Failed to compile wireframe shader."),
             };
 
         let geom_wireframe_frag =
             match shaders::shader_from_source(&geom_wireframe_source, gl::FRAGMENT_SHADER) {
                 Ok(e) => e,
-                Err(e) => panic!("Failed to compile wireframe shader."),
+                Err(_e) => panic!("Failed to compile wireframe shader."),
             };
 
         let geom = match shaders::shader_from_source(&geom_source, gl::GEOMETRY_SHADER) {
@@ -211,7 +213,7 @@ fn main() {
         use assimp::Importer;
         let importer = Importer::new();
         // let scene = importer.read_file("assets/cube.obj").unwrap();
-        let scene = importer.read_file("assets/cube.obj").unwrap();
+        let scene = importer.read_file("assets/suzanne.obj").unwrap();
         println!("Loaded scene with {} meshes", scene.num_meshes());
 
         let first_mesh = scene.mesh(0).unwrap();
@@ -302,7 +304,7 @@ fn main() {
             gl::STATIC_DRAW,
         );
     }
-    let suzanne_vao = unsafe{ GlVert::setup_vao(suzanne_vertex_buffer)};
+    let suzanne_vao = unsafe { GlVert::setup_vao(suzanne_vertex_buffer) };
 
     let duration = mesh_process_end.to(PreciseTime::now());
     println!(
@@ -315,28 +317,33 @@ fn main() {
         gl::ClearColor(0.3, 0.3, 0.3, 1.0);
     }
 
+    // Set some default states
     unsafe {
         gl::CullFace(gl::BACK);
         gl::Enable(gl::DEPTH_TEST);
 
         gl::Enable(gl::BLEND);
-        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);  
+        gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
     }
 
     let window_size = window.size();
     let aspect = window_size.0 as f32 / window_size.1 as f32;
 
-    let projection = na::Mat4::new_perspective(aspect, 3.14 / 4.0, 0.01, 1000.0);
+    // Define some default matrices
     let view = na::look_at(
-        &na::Vec3::new(3.0, 1.8, 3.0),
+        &na::Vec3::new(4.0, 1.8, 4.0),
         &na::Vec3::new(0.0, 0.0, 0.0),
         &na::Vec3::new(0.0, 1.0, 0.0),
     );
     let model = na::Mat4::new_translation(&na::Vec3::new(0.0, 0.0, 0.0));
 
-    let mut start_time = time::precise_time_s();
+
+    // Record the start timings
+    let _start_time = time::precise_time_s();
     let mut elapsed = 0.0;
     let mut curr_time = 0.0;
+    let mut curr_item = 0;
+    let mut line_thickness = 0.01;
     // Run the application
     'app: loop {
         let prev_time = curr_time;
@@ -357,28 +364,7 @@ fn main() {
             match e {
                 Event::Quit { .. } => {
                     break 'app;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Num1),
-                    ..
-                } => {
-                    println!("Switching to single pass no correction");
-                    draw_mode = WireframeMode::SinglePassNoCorrection;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Num2),
-                    ..
-                } => {
-                    draw_mode = WireframeMode::SinglePassCorrection;
-                    println!("Switching to singlepass with correction");
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Num3),
-                    ..
-                } => {
-                    draw_mode = WireframeMode::MultiPass;
-                    println!("Switching to multipass");
-                }
+                },
                 Event::KeyDown {
                     keycode: Some(Keycode::P),
                     ..
@@ -388,28 +374,33 @@ fn main() {
         }
 
         let size = window.size();
-        let frame_size = imgui::FrameSize{logical_size: (size.0 as f64, size.1 as f64), hidpi_factor: 1.0};
+        let frame_size = imgui::FrameSize {
+            logical_size: (size.0 as f64, size.1 as f64),
+            hidpi_factor: 1.0,
+        };
         let ui = imgui.frame(frame_size, dt as f32);
         // #TODO: proper structuring needed for the ui, for now do inline ui render
         {
             use imgui::im_str;
             use imgui::ImGuiCond;
+            // let mut show = true;
+            // ui.show_demo_window(&mut show);
+
             ui.window(im_str!("Hello"))
-                .size((300.0,100.0), ImGuiCond::FirstUseEver)
-                .build(||{
-                    ui.text(im_str!("Hello!"));
-                    ui.text(im_str!("Hello world 2"));
-                    ui.text(im_str!("Where is my next hello?"));
-                    if ui.button(im_str!("MORE BYUTT"), imgui::ImVec2::new(100.0,100.0)) {
-                        draw_mode = match draw_mode {
-                            WireframeMode::SinglePassNoCorrection => WireframeMode::SinglePassCorrection,
-                            WireframeMode::SinglePassCorrection => WireframeMode::MultiPass,
-                            WireframeMode::MultiPass => WireframeMode::SinglePassNoCorrection,
-                        }
-                    }
+                .size((300.0, 100.0), ImGuiCond::FirstUseEver)
+                .build(|| {
+                    ui.combo(im_str!("Draw mode"), &mut curr_item, &[im_str!("Default"), im_str!("Singlepass"), im_str!("Singlepass correction"), im_str!("Multipass")], 10);
+                    ui.slider_float(im_str!("Line thickness"), &mut line_thickness, 0.001, 1.0).build();
                 });
         }
-
+        // Update draw mode
+        match curr_item {
+            0 => draw_mode = WireframeMode::None,
+            1 => draw_mode = WireframeMode::SinglePass,
+            2 => draw_mode = WireframeMode::SinglePassCorrection,
+            3 => draw_mode = WireframeMode::MultiPass,
+            _ => {}
+        }
 
         let model = na::rotation(elapsed as f32, &na::Vec3::new(0.0, 1.0, 0.0));
         let aspect = size.0 as f32 / size.1 as f32;
@@ -420,13 +411,33 @@ fn main() {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
             let final_mat = projection * &view * model;
-            use std::ffi::CString;
-
+            // Render our loaded mesh
             gl::BindVertexArray(suzanne_vao);
-            // Still need to bind index buffer
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, suzanne_index_buffer);
             match draw_mode {
-                WireframeMode::SinglePassNoCorrection | WireframeMode::SinglePassCorrection => {
+                WireframeMode::None => {
+                                       let model_loc = gl::GetUniformLocation(
+                        default_program,
+                        CString::new("model").unwrap().as_ptr(),
+                    );
+                    let vp_loc = gl::GetUniformLocation(
+                        default_program,
+                        CString::new("projection").unwrap().as_ptr(),
+                    );
+                    // First draw
+                    gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
+                    gl::UseProgram(default_program);
+
+                    gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
+                    gl::UniformMatrix4fv(model_loc, 1, gl::FALSE, model.as_slice().as_ptr());
+                    gl::DrawElements(
+                        gl::TRIANGLES,
+                        indices.len() as GLsizei,
+                        gl::UNSIGNED_INT,
+                        std::ptr::null(),
+                    );
+                },
+                WireframeMode::SinglePass | WireframeMode::SinglePassCorrection => {
                     let u_correction = gl::GetUniformLocation(
                         wireframe_singlepass,
                         CString::new("u_correction").unwrap().as_ptr(),
@@ -442,8 +453,13 @@ fn main() {
 
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
                     gl::UseProgram(wireframe_singlepass);
+                    let line_thickness_loc = gl::GetUniformLocation(
+                        wireframe_singlepass,
+                        CString::new("u_line_thickness").unwrap().as_ptr(),
+                    );
+                    gl::Uniform1fv(line_thickness_loc, 1, &line_thickness);
                     match draw_mode {
-                        WireframeMode::SinglePassNoCorrection => {
+                        WireframeMode::SinglePassCorrection => {
                             gl::Uniform1iv(u_correction, 1, &1);
                         }
                         _ => {
@@ -491,6 +507,7 @@ fn main() {
                     );
                     // Second draw
                     // gl::Disable(gl::DEPTH_TEST);
+                    gl::LineWidth(line_thickness * 100.0);
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
                     gl::UseProgram(wireframe_program);
                     gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
@@ -505,23 +522,62 @@ fn main() {
                 }
             }
 
-            // Start IMGUI rendering
-            let window_size = window.size();
+            // Setup our Imgui rendering
             let width = window.size().0 as f32;
             let height = window.size().1 as f32;
-                     let matrix = na::Mat4::from([
-                            [(2.0 / width) as f32, 0.0, 0.0, 0.0],
-                            [0.0, -(2.0 / height) as f32, 0.0, 0.0],
-                            [0.0, 0.0, -1.0, 0.0],
-                            [-1.0, 1.0, 0.0, 1.0],
-                ]);
+            let matrix = na::Mat4::from([
+                [(2.0 / width) as f32, 0.0, 0.0, 0.0],
+                [0.0, -(2.0 / height) as f32, 0.0, 0.0],
+                [0.0, 0.0, -1.0, 0.0],
+                [-1.0, 1.0, 0.0, 1.0],
+            ]);
+            // Initiate the draw for all lists
             imgui_renderer.render(&matrix, ui);
         }
 
         window.gl_swap_window();
     }
 }
+mod helpers {
+    use gl::types::*;
 
+    /// Sets the enumeration of openGL enabled and returns the previous state
+    pub fn gl_set_enabled(enumeration: GLenum, enabled: bool) -> bool {
+        debug_assert!(gl::Enable::is_loaded() && gl::Disable::is_loaded() && gl::GetIntegerv::is_loaded());
+        unsafe {
+            let mut previous_status = 0;
+            gl::GetIntegerv(enumeration, &mut previous_status );
+
+            match enabled {
+                true => gl::Enable(enumeration),
+                false => gl::Disable(enumeration),
+            }
+
+            previous_status != 0
+        }
+    }
+
+    /// Allocates a byte buffer for usage with opengl error info logs
+    pub fn alloc_buffer(len: usize) -> Vec<u8> {
+        let mut buffer = Vec::with_capacity(len as usize + 1);
+        buffer.extend([b' '].iter().cycle().take(len as usize));
+        buffer
+    }
+
+    /// Checks if any opengl errors occurred (flushes the error log)
+    pub fn check_gl_errors() {
+        debug_assert!(gl::GetError::is_loaded());
+        unsafe {
+            let mut result = gl::GetError();
+            while result != gl::NO_ERROR {
+                println!("OpenGL error {:?}", result);
+
+                result = gl::GetError();
+            }
+        }
+    }
+
+}
 mod shaders {
     use gl::types::*;
     use std::ffi::{CStr, CString};
@@ -542,9 +598,8 @@ mod shaders {
             unsafe {
                 gl::GetShaderiv(id, gl::INFO_LOG_LENGTH, &mut len);
             }
-            let mut buffer = Vec::with_capacity(len as usize + 1);
-            buffer.extend([b' '].iter().cycle().take(len as usize));
 
+            let buffer = crate::helpers::alloc_buffer(len as usize);
             let error = unsafe { CString::from_vec_unchecked(buffer) };
             unsafe {
                 gl::GetShaderInfoLog(
@@ -569,7 +624,7 @@ struct GlVert {
     uv: [f32; 2],
 }
 impl GlVert {
-    unsafe fn setup_vao(vtx : GLuint) -> GLuint {
+    unsafe fn setup_vao(vtx: GLuint) -> GLuint {
         let mut vao = 0;
         gl::GenVertexArrays(1, &mut vao);
 

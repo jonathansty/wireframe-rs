@@ -9,7 +9,7 @@ layout(location = 5) in vec3 coord;
 
 out vec4 color;
 
-uniform float u_thickness = 0.02;
+uniform float u_line_thickness = 0.02;
 uniform float u_falloff = 0.003;
 
 uniform vec3 u_object_color = vec3(1,1,1);
@@ -34,7 +34,7 @@ void main() {
 
     // Get the minimum distance
     float d = min(coord.x, min(coord.y, coord.z));
-    d = smoothstep(u_thickness, u_thickness + u_falloff, d);
+    d = smoothstep(u_line_thickness, u_line_thickness + u_falloff, d);
 
     color = vec4(mix(final_color, u_wireframe_color, 1.0 - d), 1);
 }

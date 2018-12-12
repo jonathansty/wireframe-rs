@@ -8,6 +8,6 @@ uniform sampler2D u_font;
 out vec4 out_color;
 
 void main() {
-    // out_color = color * texture(u_font, uv.st);
-    out_color = color;
+    out_color = color * texture(u_font, uv.st);
+    // out_color = color;
 }
