@@ -24,6 +24,16 @@ impl ImGuiGl {
     pub fn new(imgui : &mut ImGui) -> Self {
         imgui.fonts().add_default_font();
 
+        imgui.set_imgui_key(imgui::ImGuiKey::Tab, sdl2::keyboard::Keycode::Tab as u8);
+        imgui.set_imgui_key(imgui::ImGuiKey::LeftArrow, sdl2::keyboard::Keycode::Left as u8);
+        imgui.set_imgui_key(imgui::ImGuiKey::RightArrow, sdl2::keyboard::Keycode::Right as u8);
+        imgui.set_imgui_key(imgui::ImGuiKey::UpArrow, sdl2::keyboard::Keycode::Up as u8);
+        imgui.set_imgui_key(imgui::ImGuiKey::DownArrow, sdl2::keyboard::Keycode::Down as u8);
+        imgui.set_imgui_key(imgui::ImGuiKey::Delete, sdl2::keyboard::Keycode::Delete as u8);
+        imgui.set_imgui_key(imgui::ImGuiKey::Backspace, sdl2::keyboard::Keycode::Backspace as u8);
+        imgui.set_imgui_key(imgui::ImGuiKey::Enter, sdl2::keyboard::Keycode::Return as u8);
+        imgui.set_imgui_key(imgui::ImGuiKey::Escape, sdl2::keyboard::Keycode::Escape as u8);
+
         let mut last_texture  = 0;
         unsafe{
             gl::GetIntegerv(gl::TEXTURE_BINDING_2D, &mut last_texture);
@@ -81,6 +91,7 @@ impl ImGuiGl {
     pub fn handle_event(&mut self, imgui : &mut ImGui, event : &sdl2::event::Event){
         use sdl2::event::Event;
         use sdl2::mouse::MouseButton;
+        use sdl2::keyboard::Keycode;
 
         // Request previous state
         let mut mouse_downs = imgui.mouse_down();
@@ -91,7 +102,7 @@ impl ImGuiGl {
                 }
             },
             Event::KeyDown{keycode, scancode, keymod, .. } => {
-
+                imgui.set_key(keycode.unwrap() as u8, true);
                 let ctrl_down = keymod.contains(sdl2::keyboard::LCTRLMOD);
                 imgui.set_key_ctrl(ctrl_down);
 
@@ -99,6 +110,7 @@ impl ImGuiGl {
                 imgui.set_key_shift(shift_down);
             },
             Event::KeyUp{keycode, scancode, keymod, .. } => {
+                imgui.set_key(keycode.unwrap() as u8, false);
 
                 let ctrl_down = keymod.contains(sdl2::keyboard::LCTRLMOD);
                 imgui.set_key_ctrl(ctrl_down);
