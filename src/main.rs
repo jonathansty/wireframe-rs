@@ -383,8 +383,8 @@ fn main() {
         {
             use imgui::im_str;
             use imgui::ImGuiCond;
-            // let mut show = true;
-            // ui.show_demo_window(&mut show);
+            let mut show = true;
+            ui.show_demo_window(&mut show);
 
             ui.window(im_str!("Hello"))
                 .size((300.0, 100.0), ImGuiCond::FirstUseEver)

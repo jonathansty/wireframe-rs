@@ -85,18 +85,46 @@ impl ImGuiGl {
         // Request previous state
         let mut mouse_downs = imgui.mouse_down();
         match event {
+            Event::TextInput{text, .. } => {
+                for c in text.chars() {
+                    imgui.add_input_character(c);
+                }
+            },
+            Event::KeyDown{keycode, scancode, keymod, .. } => {
+
+                let ctrl_down = keymod.contains(sdl2::keyboard::LCTRLMOD);
+                imgui.set_key_ctrl(ctrl_down);
+
+                let shift_down = keymod.contains(sdl2::keyboard::LSHIFTMOD);
+                imgui.set_key_shift(shift_down);
+            },
+            Event::KeyUp{keycode, scancode, keymod, .. } => {
+
+                let ctrl_down = keymod.contains(sdl2::keyboard::LCTRLMOD);
+                imgui.set_key_ctrl(ctrl_down);
+
+                let shift_down = keymod.contains(sdl2::keyboard::LSHIFTMOD);
+                imgui.set_key_shift(shift_down);
+            },
             Event::MouseMotion{x,y,.. } => {
                 imgui.set_mouse_pos(*x as f32,*y as f32);
+            },
+            Event::MouseWheel{x, y, direction, .. } => {
+                imgui.set_mouse_wheel(*y as f32);
             },
             Event::MouseButtonDown{mouse_btn,..} => {
                 match mouse_btn {
                     MouseButton::Left => mouse_downs[0] = true,
+                    MouseButton::Right => mouse_downs[1] = true,
+                    MouseButton::Middle => mouse_downs[2] = true,
                     _ => {}
                 }
             },
             Event::MouseButtonUp{mouse_btn, ..} => {
                 match mouse_btn {
                     MouseButton::Left => mouse_downs[0] = false,
+                    MouseButton::Middle => mouse_downs[2] = false,
+                    MouseButton::Right => mouse_downs[1] = false,
                     _ => {}
                 }
             },
