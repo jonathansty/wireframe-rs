@@ -73,11 +73,16 @@ enum UniformType {
     Mat4
 }
 
+type ShaderUniformLoc = (GLint, ShaderUniform);
 pub struct Pipeline {
     program : GLuint,
 
+    // Graphics pipeline properties
+    depth_test : bool,
+    blend_enabled : bool,
+
     // Collection of shader uniforms found when creating the pipeline
-    uniforms : HashMap<(String, UniformType), ShaderUniform>
+    uniforms : HashMap<(String, UniformType), ShaderUniformLoc>
 }
 
 impl Pipeline {
@@ -88,7 +93,7 @@ impl Pipeline {
        let entry = self.uniforms.entry((name.to_string(), uniform_type));
        match entry {
            Entry::Occupied(mut ent) => {
-               *ent.into_mut() = uniform;
+              (*ent.into_mut()).1 = uniform;
            },
            Entry::Vacant(vac) => {
                println!("Uniform \"{}\" not found in shader!", name);
@@ -106,12 +111,12 @@ impl Pipeline {
         use std::ffi::CString;
         for (key, value) in self.uniforms.iter() {
             unsafe{
-                let shader_loc = gl::GetUniformLocation(self.program, CString::from_vec_unchecked(key.0.as_bytes().to_vec()).as_ptr());
+                let shader_loc = value.0;
                 if shader_loc != -1 {
                     // Upload depending on shader uniform type
-                    match value {
-                        ShaderUniform::Int(v) => gl::Uniform1iv(shader_loc, 1, v),
-                        ShaderUniform::Float(v) => gl::Uniform1fv(shader_loc, 1, v),
+                    match value.1 {
+                        ShaderUniform::Int(v) => gl::Uniform1iv(shader_loc, 1, &v),
+                        ShaderUniform::Float(v) => gl::Uniform1fv(shader_loc, 1, &v),
                         ShaderUniform::Float3(v) => gl::Uniform3fv(shader_loc, 1,v.as_ptr()),
                         ShaderUniform::Float4(v) => gl::Uniform4fv(shader_loc, 1, v.as_ptr()),
                         ShaderUniform::Mat3(v) => gl::UniformMatrix3fv(shader_loc, 1, gl::FALSE, v[0].as_ptr()),
@@ -134,12 +139,25 @@ impl Pipeline {
 
         let mut uniforms = HashMap::new();
         parse_uniforms(vertex_source, &mut uniforms);
+        parse_uniforms(fragment_source, &mut uniforms);
+
+
         println!("Found {} uniforms.", uniforms.len());
 
         let mut program = helpers::create_simple_program(vertex_shader, fragment_shader)?;
 
+        // Find locations for all uniforms
+        for (key,mut value) in &mut uniforms {
+            unsafe{
+                let shader_loc = gl::GetUniformLocation(program, CString::from_vec_unchecked(key.0.as_bytes().to_vec()).as_ptr());
+                value.0 = shader_loc;
+            }
+        }
+
         Ok( 
             Pipeline{
+                blend_enabled: false,
+                depth_test: true,
                 program,
                 uniforms
             }
@@ -149,7 +167,7 @@ impl Pipeline {
 }
 
 /// Simple uniform parsing of a source string (for openGL, does not allow layout bindings yet) 
-fn parse_uniforms(source : &[u8], result : &mut HashMap<(String, UniformType), ShaderUniform>){
+fn parse_uniforms(source : &[u8], result : &mut HashMap<(String, UniformType), ShaderUniformLoc>){
     // Construct the regex
     let uniform_regex = Regex::new(r"(uniform)\s(?P<type>\w*)\s(?P<var>\w*);").expect("Failed to create regex!");
 
@@ -174,6 +192,6 @@ fn parse_uniforms(source : &[u8], result : &mut HashMap<(String, UniformType), S
         let var_default_value = ShaderUniform::from_uniform_type(var_type);
 
         let result_key = (var_name.to_string(), var_type);
-        result.entry(result_key).or_insert(var_default_value);
+        result.entry(result_key).or_insert((-1,var_default_value));
     }
 }

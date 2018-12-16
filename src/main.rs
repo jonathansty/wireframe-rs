@@ -9,6 +9,7 @@ extern crate time;
 extern crate regex;
 
 mod pipeline;
+mod device;
 mod imgui_gl;
 
 use crate::pipeline::Pipeline;
@@ -39,25 +40,6 @@ impl WireframeMode{
     }
 }
 
-/// OpenGL callback
-#[allow(unused_assignments)]
-extern "system" fn callback(
-    _source: u32,
-    _gltype: u32,
-    _id: u32,
-    severity: u32,
-    _length: i32,
-    message: *const i8,
-    _user_param: *mut std::ffi::c_void,
-) {
-    if severity != gl::DEBUG_SEVERITY_NOTIFICATION {
-        unsafe {
-            let string = std::ffi::CStr::from_ptr(message);
-            println!("{}", string.to_str().unwrap());
-        }
-    }
-}
-
 fn main() {
     // Setup SDL2
     let sdl = sdl2::init().unwrap();
@@ -74,20 +56,18 @@ fn main() {
         .build()
         .unwrap();
 
-    let _gl_context = window.gl_create_context().unwrap();
-    let _gl =
-        gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as *const std::os::raw::c_void);
+    // Create the GL device
+    use crate::device::Device;
+    let gl : Box<dyn Device> = Box::new(crate::device::GLDevice::for_sdl2(&window).unwrap());
+
+    // Enable opengl callbacks
+    gl.enable_debug_layer().expect("Failed to enable debugging capabilities!");
 
     // Disable vsync
     video_subsystem
         .gl_set_swap_interval(0)
         .expect("Failed to set swap interval.");
 
-    // Enable opengl callbacks
-    unsafe {
-        gl::Enable(gl::DEBUG_OUTPUT);
-        gl::DebugMessageCallback(callback, std::ptr::null());
-    }
 
     // Initialize IMGUI
     let mut imgui = ImGui::init();
