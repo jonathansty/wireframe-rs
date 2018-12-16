@@ -99,7 +99,9 @@ fn main() {
     let mut paused = false;
 
     // Create the default shader programs
-    let mut default_program = 0;
+    let mut default_program = Pipeline::create_simple(include_bytes!("../shaders/default.vert"), include_bytes!("../shaders/default.frag")).unwrap();
+    default_program.flush();
+
     let mut wireframe_program = 0;
     let mut wireframe_singlepass = 0;
     {
@@ -110,9 +112,6 @@ fn main() {
         let wireframe_source = CString::new(include_str!("../shaders/wireframe.frag")).unwrap();
         let geom_wireframe_source =
             CString::new(include_str!("../shaders/default_wireframe.frag")).unwrap();
-
-        // Create default pipeline
-        let default_pipeline = Pipeline::create_simple(include_bytes!("../shaders/default.vert"), include_bytes!("../shaders/default.frag")).unwrap();
 
         let vert = match shaders::shader_from_source(&vertex_source, gl::VERTEX_SHADER) {
             Ok(shader) => shader,
@@ -149,30 +148,6 @@ fn main() {
 
         let mut success = 1;
         unsafe {
-            // Create default shaded drawing program
-            default_program = gl::CreateProgram();
-
-            gl::AttachShader(default_program, vert);
-            gl::AttachShader(default_program, frag);
-            gl::LinkProgram(default_program);
-
-            gl::GetProgramiv(default_program, gl::LINK_STATUS, &mut success);
-            if success == 0 {
-                let mut len = 0;
-                gl::GetProgramiv(default_program, gl::INFO_LOG_LENGTH, &mut len);
-
-                let mut buffer = Vec::with_capacity(len as usize + 1);
-                buffer.extend([b' '].iter().cycle().take(len as usize));
-
-                let error = CString::from_vec_unchecked(buffer);
-                gl::GetProgramInfoLog(
-                    default_program,
-                    len,
-                    std::ptr::null_mut(),
-                    error.as_ptr() as *mut gl::types::GLchar,
-                );
-            }
-
             // Create Solid color black program!
             wireframe_program = gl::CreateProgram();
             gl::AttachShader(wireframe_program, vert);
@@ -438,22 +413,16 @@ fn main() {
             // Render our loaded mesh
             gl::BindVertexArray(suzanne_vao);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, suzanne_index_buffer);
+            use crate::pipeline::ShaderUniform;
             match draw_mode {
                 WireframeMode::None => {
-                                       let model_loc = gl::GetUniformLocation(
-                        default_program,
-                        CString::new("model").unwrap().as_ptr(),
-                    );
-                    let vp_loc = gl::GetUniformLocation(
-                        default_program,
-                        CString::new("projection").unwrap().as_ptr(),
-                    );
                     // First draw
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
-                    gl::UseProgram(default_program);
+                    gl::UseProgram(default_program.program());
+                    default_program.set_uniform("model", ShaderUniform::Mat4(model.into()));
+                    default_program.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
+                    default_program.flush();
 
-                    gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
-                    gl::UniformMatrix4fv(model_loc, 1, gl::FALSE, model.as_slice().as_ptr());
                     gl::DrawElements(
                         gl::TRIANGLES,
                         indices.len() as GLsizei,
@@ -501,19 +470,20 @@ fn main() {
                     );
                 }
                 WireframeMode::MultiPass => {
-                    let model_loc = gl::GetUniformLocation(
-                        default_program,
-                        CString::new("model").unwrap().as_ptr(),
-                    );
-                    let vp_loc = gl::GetUniformLocation(
-                        default_program,
-                        CString::new("projection").unwrap().as_ptr(),
-                    );
+                    // let model_loc = gl::GetUniformLocation(
+                    //     default_program,
+                    //     CString::new("model").unwrap().as_ptr(),
+                    // );
+                    // let vp_loc = gl::GetUniformLocation(
+                    //     default_program,
+                    //     CString::new("projection").unwrap().as_ptr(),
+                    // );
                     // First draw
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
-                    gl::UseProgram(default_program);
-                    gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
-                    gl::UniformMatrix4fv(model_loc, 1, gl::FALSE, model.as_slice().as_ptr());
+                    gl::UseProgram(default_program.program());
+                    default_program.set_uniform("model", ShaderUniform::Mat4(model.into()));
+                    default_program.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
+                    default_program.flush();
                     gl::DrawElements(
                         gl::TRIANGLES,
                         indices.len() as GLsizei,
@@ -530,8 +500,8 @@ fn main() {
                         CString::new("projection").unwrap().as_ptr(),
                     );
                     // Second draw
-                    // gl::Disable(gl::DEPTH_TEST);
-                    gl::LineWidth(line_thickness * 100.0);
+                    gl::Disable(gl::DEPTH_TEST);
+                    gl::LineWidth(line_thickness);
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
                     gl::UseProgram(wireframe_program);
                     gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
@@ -542,7 +512,7 @@ fn main() {
                         gl::UNSIGNED_INT,
                         std::ptr::null(),
                     );
-                    // gl::Enable(gl::DEPTH_TEST);
+                    gl::Enable(gl::DEPTH_TEST);
                 }
             }
 
