@@ -75,7 +75,7 @@ impl ImGuiGl {
         use super::shaders::shader_from_source;
         let vert = shader_from_source(&CString::new(include_str!("../shaders/imgui.vert")).unwrap(), gl::VERTEX_SHADER).unwrap();
         let frag = shader_from_source(&CString::new(include_str!("../shaders/imgui.frag")).unwrap(), gl::FRAGMENT_SHADER).unwrap();
-        let program = create_simple_program(vert, frag).expect("Failed to create the imgui program.");
+        let program = super::helpers::create_simple_program(vert, frag).expect("Failed to create the imgui program.");
         helpers::check_gl_errors();
 
 
@@ -258,42 +258,3 @@ impl ImGuiGl {
     }
 }
 
-
-/// Creates a simple program containing vertex and fragment shader
-pub fn create_simple_program( vertex_shader : GLuint, fragment_shader : GLuint) -> Result<GLuint, String> {
-    // Check if the functions are loaded
-    debug_assert!(gl::CreateProgram::is_loaded());
-    debug_assert!(gl::AttachShader::is_loaded());
-    debug_assert!(gl::LinkProgram::is_loaded());
-    debug_assert!(gl::GetProgramiv::is_loaded());
-    debug_assert!(gl::GetProgramInfoLog::is_loaded());
-
-    // Check if atleast the shaders aren't, we should probably check if they are valid, using some kind of abstraction 
-    debug_assert!(vertex_shader != 0 && fragment_shader != 0 );
-
-    unsafe{
-        let program =  gl::CreateProgram(); 
-        gl::AttachShader(program, vertex_shader);
-        gl::AttachShader(program, fragment_shader);
-        gl::LinkProgram(program);
-
-        let mut success = 0;
-        gl::GetProgramiv(program, gl::LINK_STATUS, &mut success);
-        if success == 0 {
-            let mut log_length = 0;
-            gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut log_length);
-            let buffer = crate::helpers::alloc_buffer(log_length as usize);
-            let error =  std::ffi::CString::from_vec_unchecked(buffer);
-
-            gl::GetProgramInfoLog(
-                program,
-                log_length,
-                std::ptr::null_mut(),
-                error.as_ptr() as *mut gl::types::GLchar,
-            );
-
-            return Err( error.to_str().unwrap().to_string() );
-        }
-        Ok(program)
-    }
-}

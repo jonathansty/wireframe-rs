@@ -6,8 +6,12 @@ extern crate nalgebra_glm as na;
 ///
 extern crate sdl2;
 extern crate time;
+extern crate regex;
 
+mod pipeline;
 mod imgui_gl;
+
+use crate::pipeline::Pipeline;
 
 use imgui::ImGui;
 use std::ffi::CString;
@@ -22,6 +26,36 @@ enum WireframeMode {
     SinglePass,
     SinglePassCorrection,
     MultiPass,
+}
+impl WireframeMode{
+    fn from_int(mode : u32) -> WireframeMode {
+        match mode {
+            0 => WireframeMode::None,
+            1 => WireframeMode::SinglePass,
+            2 => WireframeMode::SinglePassCorrection,
+            3 => WireframeMode::MultiPass,
+            _ => WireframeMode::None,
+        }
+    }
+}
+
+/// OpenGL callback
+#[allow(unused_assignments)]
+extern "system" fn callback(
+    _source: u32,
+    _gltype: u32,
+    _id: u32,
+    severity: u32,
+    _length: i32,
+    message: *const i8,
+    _user_param: *mut std::ffi::c_void,
+) {
+    if severity != gl::DEBUG_SEVERITY_NOTIFICATION {
+        unsafe {
+            let string = std::ffi::CStr::from_ptr(message);
+            println!("{}", string.to_str().unwrap());
+        }
+    }
 }
 
 fn main() {
@@ -49,24 +83,8 @@ fn main() {
         .gl_set_swap_interval(0)
         .expect("Failed to set swap interval.");
 
+    // Enable opengl callbacks
     unsafe {
-        #[allow(unused_assignments)]
-        extern "system" fn callback(
-            _source: u32,
-            _gltype: u32,
-            _id: u32,
-            severity: u32,
-            _length: i32,
-            message: *const i8,
-            _user_param: *mut std::ffi::c_void,
-        ) {
-            if severity != gl::DEBUG_SEVERITY_NOTIFICATION {
-                unsafe {
-                    let string = std::ffi::CStr::from_ptr(message);
-                    println!("{}", string.to_str().unwrap());
-                }
-            }
-        }
         gl::Enable(gl::DEBUG_OUTPUT);
         gl::DebugMessageCallback(callback, std::ptr::null());
     }
@@ -92,6 +110,9 @@ fn main() {
         let wireframe_source = CString::new(include_str!("../shaders/wireframe.frag")).unwrap();
         let geom_wireframe_source =
             CString::new(include_str!("../shaders/default_wireframe.frag")).unwrap();
+
+        // Create default pipeline
+        let default_pipeline = Pipeline::create_simple(include_bytes!("../shaders/default.vert"), include_bytes!("../shaders/default.frag")).unwrap();
 
         let vert = match shaders::shader_from_source(&vertex_source, gl::VERTEX_SHADER) {
             Ok(shader) => shader,
@@ -130,6 +151,7 @@ fn main() {
         unsafe {
             // Create default shaded drawing program
             default_program = gl::CreateProgram();
+
             gl::AttachShader(default_program, vert);
             gl::AttachShader(default_program, frag);
             gl::LinkProgram(default_program);
@@ -343,7 +365,12 @@ fn main() {
     let mut elapsed = 0.0;
     let mut curr_time = 0.0;
     let mut curr_item = 0;
+
+    // Properties
     let mut line_thickness = 0.01;
+
+    let mut line_color = [0.0,0.0,0.0,1.0];
+    let mut solid_color = [1.0,1.0,1.0,1.0];
     // Run the application
     'app: loop {
         let prev_time = curr_time;
@@ -383,23 +410,20 @@ fn main() {
         {
             use imgui::im_str;
             use imgui::ImGuiCond;
-            let mut show = true;
-            ui.show_demo_window(&mut show);
 
-            ui.window(im_str!("Hello"))
+            ui.window(im_str!("Wireframe-rs"))
                 .size((300.0, 100.0), ImGuiCond::FirstUseEver)
                 .build(|| {
                     ui.combo(im_str!("Draw mode"), &mut curr_item, &[im_str!("Default"), im_str!("Singlepass"), im_str!("Singlepass correction"), im_str!("Multipass")], 10);
                     ui.slider_float(im_str!("Line thickness"), &mut line_thickness, 0.001, 1.0).build();
+
+
+                    ui.color_edit(im_str!("Solid color"), &mut solid_color ).build();
+                    ui.color_edit(im_str!("Wireframe color"), &mut line_color ).build();
                 });
-        }
-        // Update draw mode
-        match curr_item {
-            0 => draw_mode = WireframeMode::None,
-            1 => draw_mode = WireframeMode::SinglePass,
-            2 => draw_mode = WireframeMode::SinglePassCorrection,
-            3 => draw_mode = WireframeMode::MultiPass,
-            _ => {}
+
+            // Update draw mode using the IMGUI result
+            draw_mode = WireframeMode::from_int(curr_item as u32);
         }
 
         let model = na::rotation(elapsed as f32, &na::Vec3::new(0.0, 1.0, 0.0));
@@ -541,6 +565,44 @@ fn main() {
 mod helpers {
     use gl::types::*;
 
+    /// Creates a simple program containing vertex and fragment shader
+    pub fn create_simple_program( vertex_shader : GLuint, fragment_shader : GLuint) -> Result<GLuint, String> {
+        // Check if the functions are loaded
+        debug_assert!(gl::CreateProgram::is_loaded());
+        debug_assert!(gl::AttachShader::is_loaded());
+        debug_assert!(gl::LinkProgram::is_loaded());
+        debug_assert!(gl::GetProgramiv::is_loaded());
+        debug_assert!(gl::GetProgramInfoLog::is_loaded());
+
+        // Check if atleast the shaders aren't, we should probably check if they are valid, using some kind of abstraction 
+        debug_assert!(vertex_shader != 0 && fragment_shader != 0 );
+
+        unsafe{
+            let program =  gl::CreateProgram(); 
+            gl::AttachShader(program, vertex_shader);
+            gl::AttachShader(program, fragment_shader);
+            gl::LinkProgram(program);
+
+            let mut success = 0;
+            gl::GetProgramiv(program, gl::LINK_STATUS, &mut success);
+            if success == 0 {
+                let mut log_length = 0;
+                gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut log_length);
+                let buffer = crate::helpers::alloc_buffer(log_length as usize);
+                let error =  std::ffi::CString::from_vec_unchecked(buffer);
+
+                gl::GetProgramInfoLog(
+                    program,
+                    log_length,
+                    std::ptr::null_mut(),
+                    error.as_ptr() as *mut gl::types::GLchar,
+                );
+
+                return Err( error.to_str().unwrap().to_string() );
+            }
+            Ok(program)
+        }
+    }
     /// Sets the enumeration of openGL enabled and returns the previous state
     pub fn gl_set_enabled(enumeration: GLenum, enabled: bool) -> bool {
         debug_assert!(gl::Enable::is_loaded() && gl::Disable::is_loaded() && gl::GetIntegerv::is_loaded());
@@ -634,8 +696,10 @@ impl GlVert {
         let struct_size = std::mem::size_of::<GlVert>() as i32;
 
         gl::EnableVertexArrayAttrib(vao, 0);
+        //Position 
         gl::VertexAttribPointer(0, 4, gl::FLOAT, gl::FALSE, struct_size, std::ptr::null());
 
+        // Normal
         gl::EnableVertexArrayAttrib(vao, 1);
         gl::VertexAttribPointer(
             1,
@@ -646,6 +710,7 @@ impl GlVert {
             (4 * std::mem::size_of::<f32>()) as *const std::ffi::c_void,
         );
 
+        // Tangent
         gl::EnableVertexArrayAttrib(vao, 2);
         gl::VertexAttribPointer(
             2,
@@ -656,6 +721,7 @@ impl GlVert {
             (8 * std::mem::size_of::<f32>()) as *const std::ffi::c_void,
         );
 
+        // Bitangent
         gl::EnableVertexArrayAttrib(vao, 3);
         gl::VertexAttribPointer(
             3,
@@ -666,6 +732,7 @@ impl GlVert {
             (12 * std::mem::size_of::<f32>()) as *const std::ffi::c_void,
         );
 
+        // UV
         gl::EnableVertexArrayAttrib(vao, 4);
         gl::VertexAttribPointer(
             4,
