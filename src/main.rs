@@ -79,103 +79,14 @@ fn main() {
     let mut paused = false;
 
     // Create the default shader programs
-    let mut default_program = Pipeline::create_simple(include_bytes!("../shaders/default.vert"), include_bytes!("../shaders/default.frag")).unwrap();
+    let default_vert = include_bytes!("../shaders/default.vert");
+    let default_frag = include_bytes!("../shaders/default.frag");
+    let mut default_program = Pipeline::create_simple(default_vert, default_frag).unwrap();
     default_program.flush();
 
-    let mut wireframe_program = 0;
-    let mut wireframe_singlepass = 0;
-    {
-        use std::ffi::CString;
-        let vertex_source = CString::new(include_str!("../shaders/default.vert")).unwrap();
-        let fragment_source = CString::new(include_str!("../shaders/default.frag")).unwrap();
-        let geom_source = CString::new(include_str!("../shaders/default.geom")).unwrap();
-        let wireframe_source = CString::new(include_str!("../shaders/wireframe.frag")).unwrap();
-        let geom_wireframe_source =
-            CString::new(include_str!("../shaders/default_wireframe.frag")).unwrap();
+    let mut wireframe_program = Pipeline::create_simple(default_vert, include_bytes!("../shaders/wireframe.frag")).expect("Failed to create the wireframe program.");
+    let mut wireframe_singlepass = Pipeline::create_simple_with_geom(default_vert, include_bytes!("../shaders/default.geom"), include_bytes!("../shaders/default_wireframe.frag")).expect("Failed to create singlepass wireframe");
 
-        let vert = match shaders::shader_from_source(&vertex_source, gl::VERTEX_SHADER) {
-            Ok(shader) => shader,
-            Err(msg) => {
-                panic!("Failed to compile shader with following log:\n {}", msg);
-            }
-        };
-
-        let frag = match shaders::shader_from_source(&fragment_source, gl::FRAGMENT_SHADER) {
-            Ok(e) => e,
-            Err(e) => {
-                panic!("Failed to compile shader with following log:\n {}", e);
-            }
-        };
-
-        let wireframe_frag =
-            match shaders::shader_from_source(&wireframe_source, gl::FRAGMENT_SHADER) {
-                Ok(e) => e,
-                Err(_e) => panic!("Failed to compile wireframe shader."),
-            };
-
-        let geom_wireframe_frag =
-            match shaders::shader_from_source(&geom_wireframe_source, gl::FRAGMENT_SHADER) {
-                Ok(e) => e,
-                Err(_e) => panic!("Failed to compile wireframe shader."),
-            };
-
-        let geom = match shaders::shader_from_source(&geom_source, gl::GEOMETRY_SHADER) {
-            Ok(e) => e,
-            Err(e) => {
-                panic!("Failed to compile shader with following log:\n {}", e);
-            }
-        };
-
-        let mut success = 1;
-        unsafe {
-            // Create Solid color black program!
-            wireframe_program = gl::CreateProgram();
-            gl::AttachShader(wireframe_program, vert);
-            gl::AttachShader(wireframe_program, wireframe_frag);
-            gl::LinkProgram(wireframe_program);
-
-            gl::GetProgramiv(wireframe_program, gl::LINK_STATUS, &mut success);
-            if success == 0 {
-                let mut len = 0;
-                gl::GetProgramiv(wireframe_program, gl::INFO_LOG_LENGTH, &mut len);
-
-                let mut buffer = Vec::with_capacity(len as usize + 1);
-                buffer.extend([b' '].iter().cycle().take(len as usize));
-
-                let error = CString::from_vec_unchecked(buffer);
-                gl::GetProgramInfoLog(
-                    wireframe_program,
-                    len,
-                    std::ptr::null_mut(),
-                    error.as_ptr() as *mut gl::types::GLchar,
-                );
-            }
-
-            // Create singlepass wireframe program
-            wireframe_singlepass = gl::CreateProgram();
-            gl::AttachShader(wireframe_singlepass, vert);
-            gl::AttachShader(wireframe_singlepass, geom);
-            gl::AttachShader(wireframe_singlepass, geom_wireframe_frag);
-            gl::LinkProgram(wireframe_singlepass);
-
-            gl::GetProgramiv(wireframe_singlepass, gl::LINK_STATUS, &mut success);
-            if success == 0 {
-                let mut len = 0;
-                gl::GetProgramiv(wireframe_singlepass, gl::INFO_LOG_LENGTH, &mut len);
-
-                let mut buffer = Vec::with_capacity(len as usize + 1);
-                buffer.extend([b' '].iter().cycle().take(len as usize));
-
-                let error = CString::from_vec_unchecked(buffer);
-                gl::GetProgramInfoLog(
-                    wireframe_singlepass,
-                    len,
-                    std::ptr::null_mut(),
-                    error.as_ptr() as *mut gl::types::GLchar,
-                );
-            }
-        }
-    }
     println!(
         "Shader compiling and setup took {}ms",
         shader_building.to(PreciseTime::now()).num_milliseconds()
@@ -411,37 +322,24 @@ fn main() {
                     );
                 },
                 WireframeMode::SinglePass | WireframeMode::SinglePassCorrection => {
-                    let u_correction = gl::GetUniformLocation(
-                        wireframe_singlepass,
-                        CString::new("u_correction").unwrap().as_ptr(),
-                    );
-                    let model_loc = gl::GetUniformLocation(
-                        wireframe_singlepass,
-                        CString::new("model").unwrap().as_ptr(),
-                    );
-                    let vp_loc = gl::GetUniformLocation(
-                        wireframe_singlepass,
-                        CString::new("projection").unwrap().as_ptr(),
-                    );
 
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
-                    gl::UseProgram(wireframe_singlepass);
-                    let line_thickness_loc = gl::GetUniformLocation(
-                        wireframe_singlepass,
-                        CString::new("u_line_thickness").unwrap().as_ptr(),
-                    );
-                    gl::Uniform1fv(line_thickness_loc, 1, &line_thickness);
+                    gl::UseProgram(wireframe_singlepass.program());
+                    use crate::pipeline::ShaderUniform;
+                    wireframe_singlepass.set_uniform("u_line_thickness", ShaderUniform::Float(line_thickness));
                     match draw_mode {
                         WireframeMode::SinglePassCorrection => {
-                            gl::Uniform1iv(u_correction, 1, &1);
+                            wireframe_singlepass.set_uniform("u_correction", ShaderUniform::Int(1));
                         }
                         _ => {
-                            gl::Uniform1iv(u_correction, 1, &0);
+                            wireframe_singlepass.set_uniform("u_correction", ShaderUniform::Int(0));
                         }
                     }
 
-                    gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
-                    gl::UniformMatrix4fv(model_loc, 1, gl::FALSE, model.as_slice().as_ptr());
+                    wireframe_singlepass.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
+                    wireframe_singlepass.set_uniform("model", ShaderUniform::Mat4(model.into()));
+                    wireframe_singlepass.flush();
+                    // gl.draw_indexed()
                     gl::DrawElements(
                         gl::TRIANGLES,
                         indices.len() as GLsizei,
@@ -450,14 +348,6 @@ fn main() {
                     );
                 }
                 WireframeMode::MultiPass => {
-                    // let model_loc = gl::GetUniformLocation(
-                    //     default_program,
-                    //     CString::new("model").unwrap().as_ptr(),
-                    // );
-                    // let vp_loc = gl::GetUniformLocation(
-                    //     default_program,
-                    //     CString::new("projection").unwrap().as_ptr(),
-                    // );
                     // First draw
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
                     gl::UseProgram(default_program.program());
@@ -471,21 +361,15 @@ fn main() {
                         std::ptr::null(),
                     );
 
-                    let model_loc = gl::GetUniformLocation(
-                        wireframe_program,
-                        CString::new("model").unwrap().as_ptr(),
-                    );
-                    let vp_loc = gl::GetUniformLocation(
-                        wireframe_program,
-                        CString::new("projection").unwrap().as_ptr(),
-                    );
                     // Second draw
                     gl::Disable(gl::DEPTH_TEST);
                     gl::LineWidth(line_thickness);
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
-                    gl::UseProgram(wireframe_program);
-                    gl::UniformMatrix4fv(vp_loc, 1, gl::FALSE, final_mat.as_slice().as_ptr());
-                    gl::UniformMatrix4fv(model_loc, 1, gl::FALSE, model.as_slice().as_ptr());
+                    gl::UseProgram(wireframe_program.program());
+                    use crate::pipeline::ShaderUniform;
+                    wireframe_program.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
+                    wireframe_program.set_uniform("model", ShaderUniform::Mat4(model.into()));
+                    wireframe_program.flush();
                     gl::DrawElements(
                         gl::TRIANGLES,
                         indices.len() as GLsizei,
@@ -515,44 +399,7 @@ fn main() {
 mod helpers {
     use gl::types::*;
 
-    /// Creates a simple program containing vertex and fragment shader
-    pub fn create_simple_program( vertex_shader : GLuint, fragment_shader : GLuint) -> Result<GLuint, String> {
-        // Check if the functions are loaded
-        debug_assert!(gl::CreateProgram::is_loaded());
-        debug_assert!(gl::AttachShader::is_loaded());
-        debug_assert!(gl::LinkProgram::is_loaded());
-        debug_assert!(gl::GetProgramiv::is_loaded());
-        debug_assert!(gl::GetProgramInfoLog::is_loaded());
 
-        // Check if atleast the shaders aren't, we should probably check if they are valid, using some kind of abstraction 
-        debug_assert!(vertex_shader != 0 && fragment_shader != 0 );
-
-        unsafe{
-            let program =  gl::CreateProgram(); 
-            gl::AttachShader(program, vertex_shader);
-            gl::AttachShader(program, fragment_shader);
-            gl::LinkProgram(program);
-
-            let mut success = 0;
-            gl::GetProgramiv(program, gl::LINK_STATUS, &mut success);
-            if success == 0 {
-                let mut log_length = 0;
-                gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut log_length);
-                let buffer = crate::helpers::alloc_buffer(log_length as usize);
-                let error =  std::ffi::CString::from_vec_unchecked(buffer);
-
-                gl::GetProgramInfoLog(
-                    program,
-                    log_length,
-                    std::ptr::null_mut(),
-                    error.as_ptr() as *mut gl::types::GLchar,
-                );
-
-                return Err( error.to_str().unwrap().to_string() );
-            }
-            Ok(program)
-        }
-    }
     /// Sets the enumeration of openGL enabled and returns the previous state
     pub fn gl_set_enabled(enumeration: GLenum, enabled: bool) -> bool {
         debug_assert!(gl::Enable::is_loaded() && gl::Disable::is_loaded() && gl::GetIntegerv::is_loaded());

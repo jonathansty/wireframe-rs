@@ -6,14 +6,21 @@
     "configurations": [
         {
             "name": "(Windows) Launch",
-            "type": "cppvsdbg",
             "request": "launch",
+            "type": "cppvsdbg",
             "program": "${workspaceFolder}/target/debug/wireframe-rs.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
             "externalConsole": true
+        },
+        {
+            "type": "gdb",
+            "request": "launch",
+            "name": "Launch Program",
+            "target": "${workspaceFolder}/target/debug/wireframe-rs.exe",
+            "cwd": "${workspaceRoot}"
         }
     ]
 }

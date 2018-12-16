@@ -17,6 +17,7 @@ enum ShaderStage {
 
 /// Shader uniforms are parsed from input source and can be different types
 pub enum ShaderUniform{
+    Invalid,
     Int(i32),
     Float(f32),
     Float2([f32;2]),
@@ -34,7 +35,7 @@ impl ShaderUniform {
             ShaderUniform::Float3(_) => UniformType::Float3,
             ShaderUniform::Mat3(_) => UniformType::Mat3,
             ShaderUniform::Mat4(_) => UniformType::Mat4,
-            _ => UniformType::Int,
+            _ => UniformType::Invalid,
         }
     }
 
@@ -58,6 +59,7 @@ impl ShaderUniform {
                  [0.0,0.0,0.0, 1.0]
                  ])
             ,
+            UniformType::Invalid => ShaderUniform::Invalid,
             _ => panic!("Unimplemented uniform type found!")
         }
     }
@@ -70,7 +72,8 @@ enum UniformType {
     Float3,
     Float4,
     Mat3,
-    Mat4
+    Mat4,
+    Invalid
 }
 
 type ShaderUniformLoc = (GLint, ShaderUniform);
@@ -130,6 +133,38 @@ impl Pipeline {
         }
     }
 
+    pub fn create_simple_with_geom(vertex_source : &[u8], geom_source : &[u8], fragment_source : &[u8]) -> Result<Pipeline, String> {
+        use std::ffi::CString;
+        let vertex_shader   = shaders::shader_from_source(&CString::new(vertex_source).unwrap(), gl::VERTEX_SHADER)?;
+        let geom_shader = shaders::shader_from_source(&CString::new(geom_source).unwrap(), gl::GEOMETRY_SHADER)?;
+        let fragment_shader = shaders::shader_from_source(&CString::new(fragment_source).unwrap(), gl::FRAGMENT_SHADER)?;
+
+        let mut uniforms = HashMap::new();
+        parse_uniforms(vertex_source, &mut uniforms);
+        parse_uniforms(fragment_source, &mut uniforms);
+        parse_uniforms(geom_source, &mut uniforms);
+
+
+        let mut program = create_simple_program(vertex_shader, fragment_shader, Some(geom_shader))?;
+
+        // Find locations for all uniforms
+        for (key,mut value) in &mut uniforms {
+            unsafe{
+                let shader_loc = gl::GetUniformLocation(program, CString::from_vec_unchecked(key.0.as_bytes().to_vec()).as_ptr());
+                value.0 = shader_loc;
+            }
+        }
+
+        Ok( 
+            Pipeline{
+                blend_enabled: false,
+                depth_test: true,
+                program,
+                uniforms
+            }
+        )
+    }
+
     pub fn create_simple(vertex_source : &[u8], fragment_source : &[u8]) -> Result<Pipeline, String> {
         use std::ffi::CString;
 
@@ -144,7 +179,7 @@ impl Pipeline {
 
         println!("Found {} uniforms.", uniforms.len());
 
-        let mut program = helpers::create_simple_program(vertex_shader, fragment_shader)?;
+        let mut program = create_simple_program(vertex_shader, fragment_shader, None)?;
 
         // Find locations for all uniforms
         for (key,mut value) in &mut uniforms {
@@ -166,6 +201,47 @@ impl Pipeline {
 
 }
 
+/// Creates a simple program containing vertex and fragment shader
+pub fn create_simple_program( vertex_shader : GLuint, fragment_shader : GLuint, geom : Option<GLuint>) -> Result<GLuint, String> {
+    // Check if the functions are loaded
+    debug_assert!(gl::CreateProgram::is_loaded());
+    debug_assert!(gl::AttachShader::is_loaded());
+    debug_assert!(gl::LinkProgram::is_loaded());
+    debug_assert!(gl::GetProgramiv::is_loaded());
+    debug_assert!(gl::GetProgramInfoLog::is_loaded());
+
+    // Check if atleast the shaders aren't, we should probably check if they are valid, using some kind of abstraction 
+    debug_assert!(vertex_shader != 0 && fragment_shader != 0 );
+
+    unsafe{
+        let program =  gl::CreateProgram(); 
+        gl::AttachShader(program, vertex_shader);
+        if let Some(geom_shader) = geom {
+            gl::AttachShader(program, geom_shader);
+        }
+        gl::AttachShader(program, fragment_shader);
+        gl::LinkProgram(program);
+
+        let mut success = 0;
+        gl::GetProgramiv(program, gl::LINK_STATUS, &mut success);
+        if success == 0 {
+            let mut log_length = 0;
+            gl::GetProgramiv(program, gl::INFO_LOG_LENGTH, &mut log_length);
+            let buffer = crate::helpers::alloc_buffer(log_length as usize);
+            let error =  std::ffi::CString::from_vec_unchecked(buffer);
+
+            gl::GetProgramInfoLog(
+                program,
+                log_length,
+                std::ptr::null_mut(),
+                error.as_ptr() as *mut gl::types::GLchar,
+            );
+
+            return Err( error.to_str().unwrap().to_string() );
+        }
+        Ok(program)
+    }
+}
 /// Simple uniform parsing of a source string (for openGL, does not allow layout bindings yet) 
 fn parse_uniforms(source : &[u8], result : &mut HashMap<(String, UniformType), ShaderUniformLoc>){
     // Construct the regex
@@ -186,7 +262,7 @@ fn parse_uniforms(source : &[u8], result : &mut HashMap<(String, UniformType), S
             "float4" => UniformType::Float4,
             "mat3" => UniformType::Mat3,
             "mat4" => UniformType::Mat4,
-            _ => panic!("Unrecognized shader uniform found in shader!")
+            _ => UniformType::Invalid,
         };
 
         let var_default_value = ShaderUniform::from_uniform_type(var_type);

@@ -7,14 +7,14 @@ use gl::types::*;
 pub struct ImGuiGl {
     font_textures : Vec<GLuint>,
 
-    program : GLuint,
+    program : crate::pipeline::Pipeline,
     vertex_buffer : GLuint,
     index_buffer : GLuint,
 }
 impl Drop for ImGuiGl {
     fn drop(&mut self) {
         unsafe{
-            gl::DeleteProgram(self.program);
+            gl::DeleteProgram(self.program.program());
             gl::DeleteBuffers(1, &self.vertex_buffer);
             gl::DeleteBuffers(1, &self.index_buffer);
         }
@@ -71,14 +71,9 @@ impl ImGuiGl {
         }
 
         // Create the program
-        use std::ffi::CString;
-        use super::shaders::shader_from_source;
-        let vert = shader_from_source(&CString::new(include_str!("../shaders/imgui.vert")).unwrap(), gl::VERTEX_SHADER).unwrap();
-        let frag = shader_from_source(&CString::new(include_str!("../shaders/imgui.frag")).unwrap(), gl::FRAGMENT_SHADER).unwrap();
-        let program = super::helpers::create_simple_program(vert, frag).expect("Failed to create the imgui program.");
+        let program = crate::pipeline::Pipeline::create_simple(include_bytes!("../shaders/imgui.vert"), include_bytes!("../shaders/imgui.frag")).unwrap();
         helpers::check_gl_errors();
-
-
+        program.flush();
 
         ImGuiGl{
             font_textures: vec![result],
@@ -91,7 +86,6 @@ impl ImGuiGl {
     pub fn handle_event(&mut self, imgui : &mut ImGui, event : &sdl2::event::Event){
         use sdl2::event::Event;
         use sdl2::mouse::MouseButton;
-        use sdl2::keyboard::Keycode;
 
         // Request previous state
         let mut mouse_downs = imgui.mouse_down();
@@ -199,11 +193,12 @@ impl ImGuiGl {
                     (4 * std::mem::size_of::<f32>()) as *const std::ffi::c_void,
                 );
 
-                gl::UseProgram(self.program);
+                gl::UseProgram(self.program.program());
                 gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.index_buffer);
-                let loc = gl::GetUniformLocation(self.program, std::ffi::CString::new("u_proj").unwrap().as_ptr());
-                gl::UniformMatrix4fv(loc, 1, gl::FALSE, proj.as_slice().as_ptr());
-                gl::Uniform1i(gl::GetUniformLocation(self.program, "u_font".as_ptr() as *const i8),0);
+                use crate::pipeline::ShaderUniform;
+                self.program.set_uniform("u_proj", ShaderUniform::Mat4((*proj).into()));
+                self.program.set_uniform("u_font", ShaderUniform::Int(0));
+                self.program.flush();
             }
 
 
@@ -227,7 +222,7 @@ impl ImGuiGl {
                     unsafe{
                         gl::Scissor(cmd.clip_rect.x as i32, fb_height as i32 - cmd.clip_rect.w as i32, (cmd.clip_rect.z - cmd.clip_rect.x) as i32, (cmd.clip_rect.w - cmd.clip_rect.y) as i32);
                         gl::ActiveTexture(gl::TEXTURE0);
-                        gl::BindTexture(gl::TEXTURE_2D, font_textures[0]);
+                        gl::BindTexture(gl::TEXTURE_2D, cmd.texture_id as u32);
 
                         let index_size = std::mem::size_of::<imgui::ImDrawIdx>();
                         let mut index_enum = gl::UNSIGNED_INT;
