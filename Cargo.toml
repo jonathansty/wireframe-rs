@@ -1,5 +1,5 @@
 [package]
-name = "wireframe-rs"
+name = "wireframe"
 version = "0.1.0"
 authors = ["Jonathan Steyfkens <jonathansty@users.noreply.github.com>"]
 edition = "2018"
@@ -12,7 +12,7 @@ imgui = "0.0.21"
 
 [dependencies.sdl2]
 version = "0.32"
-features = ["bundled", "static-link"]
+# features = ["bundled"]
 
 [dependencies.assimp]
 version= "0.3.1"

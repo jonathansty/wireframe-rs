@@ -1,9 +1,10 @@
 use regex::Regex;
 
 use crate::shaders;
-use crate::helpers;
+use crate::device::PrimitiveTopology;
 
 use gl::types::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -16,6 +17,7 @@ enum ShaderStage {
 }
 
 /// Shader uniforms are parsed from input source and can be different types
+#[derive(Clone, Copy)]
 pub enum ShaderUniform{
     Invalid,
     Int(i32),
@@ -25,6 +27,7 @@ pub enum ShaderUniform{
     Float4([f32;4]),
     Mat3([[f32;3];3]),
     Mat4([[f32;4];4]),
+    Sampler2D(u32),
 }
 impl ShaderUniform {
     fn get_type (&self) -> UniformType {
@@ -33,16 +36,24 @@ impl ShaderUniform {
             ShaderUniform::Float(_) => UniformType::Float,
             ShaderUniform::Float2(_) => UniformType::Float2,
             ShaderUniform::Float3(_) => UniformType::Float3,
+            ShaderUniform::Float4(_) => UniformType::Float4,
             ShaderUniform::Mat3(_) => UniformType::Mat3,
             ShaderUniform::Mat4(_) => UniformType::Mat4,
+            ShaderUniform::Sampler2D(_) => UniformType::Sampler2D,
             _ => UniformType::Invalid,
         }
     }
 
-    fn from_uniform_type(uniform_type : UniformType) -> Self{
+    fn from_uniform_type(uniform_type : UniformType, default : String) -> Self{
         match uniform_type {
-            UniformType::Int => ShaderUniform::Int(0),
-            UniformType::Float => ShaderUniform::Float(0.0),
+            UniformType::Int => {
+                let default_value = default.parse::<i32>().unwrap_or(0);
+                ShaderUniform::Int(default_value)
+            },
+            UniformType::Float => {
+                let default_value = default.parse::<f32>().unwrap_or(0.0);
+                ShaderUniform::Float(default_value)
+            },
             UniformType::Float2 => ShaderUniform::Float2([0.0,0.0]),
             UniformType::Float3 => ShaderUniform::Float3([0.0,0.0,0.0]),
             UniformType::Float4 => ShaderUniform::Float4([0.0,0.0,0.0,0.0]),
@@ -60,10 +71,12 @@ impl ShaderUniform {
                  ])
             ,
             UniformType::Invalid => ShaderUniform::Invalid,
-            _ => panic!("Unimplemented uniform type found!")
+            UniformType::Sampler2D => ShaderUniform::Sampler2D(0),
+            // _ => panic!("Unimplemented uniform type found!")
         }
     }
 }
+
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
 enum UniformType {
     Int,
@@ -73,8 +86,10 @@ enum UniformType {
     Float4,
     Mat3,
     Mat4,
+    Sampler2D,
     Invalid
 }
+
 
 type ShaderUniformLoc = (GLint, ShaderUniform);
 pub struct Pipeline {
@@ -83,25 +98,35 @@ pub struct Pipeline {
     // Graphics pipeline properties
     depth_test : bool,
     blend_enabled : bool,
+    primitive_topology : PrimitiveTopology,
 
     // Collection of shader uniforms found when creating the pipeline
-    uniforms : HashMap<(String, UniformType), ShaderUniformLoc>
+    uniforms : RefCell<HashMap<(String, UniformType), GLint>>,
+
+    // Overrides for each uniform
+    uniform_overrides : RefCell<HashMap<(String, UniformType), ShaderUniform>>
 }
 
 impl Pipeline {
+    pub fn primitive_topology(&self) -> PrimitiveTopology { self.primitive_topology }
+    pub fn depth_test(&self) -> bool { self.depth_test }
+    pub fn blend_enabled(&self) -> bool { self.blend_enabled }
     pub fn program(&self) -> GLuint { self.program }
 
-    pub fn set_uniform(&mut self, name : &str, uniform : ShaderUniform) {
+    pub fn set_uniform(&self, name : &str, uniform : ShaderUniform) {
         let uniform_type = uniform.get_type();
-       let entry = self.uniforms.entry((name.to_string(), uniform_type));
-       match entry {
-           Entry::Occupied(mut ent) => {
-              (*ent.into_mut()).1 = uniform;
-           },
-           Entry::Vacant(vac) => {
-               println!("Uniform \"{}\" not found in shader!", name);
-           }
-       };
+        let mut uniforms = self.uniform_overrides.borrow_mut();
+        let k = (name.to_string(), uniform_type);
+        let exist_entry = self.uniforms.borrow_mut().contains_key(&k);
+        if exist_entry {
+            uniforms.entry(k)
+                .and_modify(|e| *e = uniform)
+                .or_insert(uniform);
+        }
+        else 
+        {
+            println!("Could not find uniform in the shader.");
+        }
     }
 
     /// Uploads all bound uniforms to the GPU
@@ -111,24 +136,33 @@ impl Pipeline {
         }
 
         // Flushes all uniforms to the GPU
-        use std::ffi::CString;
-        for (key, value) in self.uniforms.iter() {
-            unsafe{
-                let shader_loc = value.0;
-                if shader_loc != -1 {
-                    // Upload depending on shader uniform type
-                    match value.1 {
-                        ShaderUniform::Int(v) => gl::Uniform1iv(shader_loc, 1, &v),
-                        ShaderUniform::Float(v) => gl::Uniform1fv(shader_loc, 1, &v),
-                        ShaderUniform::Float3(v) => gl::Uniform3fv(shader_loc, 1,v.as_ptr()),
-                        ShaderUniform::Float4(v) => gl::Uniform4fv(shader_loc, 1, v.as_ptr()),
-                        ShaderUniform::Mat3(v) => gl::UniformMatrix3fv(shader_loc, 1, gl::FALSE, v[0].as_ptr()),
-                        ShaderUniform::Mat4(v) => gl::UniformMatrix4fv(shader_loc, 1, gl::FALSE, v[0].as_ptr()),
-                        _ => {
-                            println!("Unimplemented uniform while flushing...");
+        for (key, value) in self.uniform_overrides.borrow_mut().iter() {
+            if let Some(v) = self.uniforms.borrow().get(key) {
+                let shader_loc = *v;
+                unsafe{
+                    if shader_loc != -1 {
+                        // Upload depending on shader uniform type
+                        match value {
+                            ShaderUniform::Int(v) => gl::Uniform1iv(shader_loc, 1, v),
+                            ShaderUniform::Float(v) => gl::Uniform1fv(shader_loc, 1, v),
+                            ShaderUniform::Float3(v) => gl::Uniform3fv(shader_loc, 1,v.as_ptr()),
+                            ShaderUniform::Float4(v) => gl::Uniform4fv(shader_loc, 1, v.as_ptr()),
+                            ShaderUniform::Mat3(v) => gl::UniformMatrix3fv(shader_loc, 1, gl::FALSE, v[0].as_ptr()),
+                            ShaderUniform::Mat4(v) => gl::UniformMatrix4fv(shader_loc, 1, gl::FALSE, v[0].as_ptr()),
+                            ShaderUniform::Sampler2D(tex) => {
+                                // gl::ActiveTexture(gl::TEXTURE0 + shader_loc as u32);
+                                if *tex != 0 {
+                                    gl::BindTextureUnit(shader_loc as u32, *tex as u32);
+                                }
+                            }
+                            _ => {
+                                println!("Unimplemented uniform while flushing...");
+                            }
                         }
                     }
                 }
+            } else {
+                println!("Could not find uniform for \"{}\"", key.0);
             }
         }
     }
@@ -141,17 +175,19 @@ impl Pipeline {
 
         let mut uniforms = HashMap::new();
         parse_uniforms(vertex_source, &mut uniforms);
-        parse_uniforms(fragment_source, &mut uniforms);
         parse_uniforms(geom_source, &mut uniforms);
+        parse_uniforms(fragment_source, &mut uniforms);
+        for (key,value) in &uniforms {
+        println!("{:?}", key.0);
+        }
 
-
-        let mut program = create_simple_program(vertex_shader, fragment_shader, Some(geom_shader))?;
+        let program = create_simple_program(vertex_shader, fragment_shader, Some(geom_shader))?;
 
         // Find locations for all uniforms
         for (key,mut value) in &mut uniforms {
             unsafe{
                 let shader_loc = gl::GetUniformLocation(program, CString::from_vec_unchecked(key.0.as_bytes().to_vec()).as_ptr());
-                value.0 = shader_loc;
+                *value = shader_loc;
             }
         }
 
@@ -159,8 +195,10 @@ impl Pipeline {
             Pipeline{
                 blend_enabled: false,
                 depth_test: true,
+                primitive_topology: PrimitiveTopology::Triangles,
                 program,
-                uniforms
+                uniforms: RefCell::new(uniforms),
+                uniform_overrides: RefCell::new(HashMap::new())
             }
         )
     }
@@ -179,13 +217,13 @@ impl Pipeline {
 
         println!("Found {} uniforms.", uniforms.len());
 
-        let mut program = create_simple_program(vertex_shader, fragment_shader, None)?;
+        let program = create_simple_program(vertex_shader, fragment_shader, None)?;
 
         // Find locations for all uniforms
         for (key,mut value) in &mut uniforms {
             unsafe{
                 let shader_loc = gl::GetUniformLocation(program, CString::from_vec_unchecked(key.0.as_bytes().to_vec()).as_ptr());
-                value.0 = shader_loc;
+                *value = shader_loc;
             }
         }
 
@@ -193,8 +231,10 @@ impl Pipeline {
             Pipeline{
                 blend_enabled: false,
                 depth_test: true,
+                primitive_topology: PrimitiveTopology::Triangles,
                 program,
-                uniforms
+                uniforms: RefCell::new(uniforms),
+                uniform_overrides: RefCell::new(HashMap::new())
             }
         )
     }
@@ -243,9 +283,9 @@ pub fn create_simple_program( vertex_shader : GLuint, fragment_shader : GLuint, 
     }
 }
 /// Simple uniform parsing of a source string (for openGL, does not allow layout bindings yet) 
-fn parse_uniforms(source : &[u8], result : &mut HashMap<(String, UniformType), ShaderUniformLoc>){
+fn parse_uniforms(source : &[u8], result : &mut HashMap<(String, UniformType), GLint>){
     // Construct the regex
-    let uniform_regex = Regex::new(r"(uniform)\s(?P<type>\w*)\s(?P<var>\w*);").expect("Failed to create regex!");
+    let uniform_regex = Regex::new(r"(uniform)\s(?P<type>\w*)\s(?P<var>\w*)(\s?=\s?(?P<default>.*))?;").expect("Failed to create regex!");
 
     // Convert our input data to a string
     let c =  String::from_utf8(source.to_vec()).unwrap();
@@ -257,17 +297,22 @@ fn parse_uniforms(source : &[u8], result : &mut HashMap<(String, UniformType), S
         let var_type = match &matches["type"] {
             "int" => UniformType::Int,
             "float" => UniformType::Float,
-            "float2" => UniformType::Float2,
-            "float3" => UniformType::Float3,
-            "float4" => UniformType::Float4,
+            "vec2" => UniformType::Float2,
+            "vec3" => UniformType::Float3,
+            "vec4" => UniformType::Float4,
             "mat3" => UniformType::Mat3,
             "mat4" => UniformType::Mat4,
+            "sampler2D" => UniformType::Sampler2D,
             _ => UniformType::Invalid,
         };
 
-        let var_default_value = ShaderUniform::from_uniform_type(var_type);
+        let var_default_value = if let Some(v) = matches.get(4) { 
+            ShaderUniform::from_uniform_type(var_type, v.as_str().to_string()) 
+        } else {
+            ShaderUniform::from_uniform_type(var_type, String::new())
+        };
 
         let result_key = (var_name.to_string(), var_type);
-        result.entry(result_key).or_insert((-1,var_default_value));
+        result.entry(result_key).or_insert(-1);
     }
 }

@@ -12,8 +12,8 @@ out vec4 color;
 uniform float u_line_thickness = 0.02;
 uniform float u_falloff = 0.003;
 
-uniform vec3 u_object_color = vec3(1,1,1);
-uniform vec3 u_wireframe_color = vec3(0,0,0);
+uniform vec4 u_object_color = vec4(1,1,1,1.0);
+uniform vec4 u_wireframe_color = vec4(0,0,0,1.0);
 
 uniform vec3 light = vec3(0.33, 0.33, 0.33);
 uniform vec3 light_color = vec3(1,1,1);
@@ -29,12 +29,12 @@ void main() {
     float D = clamp(calculate_diffuse(L, world_normal.xyz),0.0,1.0);
 
     // Calculate the final "lit" color
-    vec3 object = u_object_color;
+    vec3 object = u_object_color.rgb;
     vec3 final_color = ambient*object + D*object;
 
     // Get the minimum distance
     float d = min(coord.x, min(coord.y, coord.z));
     d = smoothstep(u_line_thickness, u_line_thickness + u_falloff, d);
 
-    color = vec4(mix(final_color, u_wireframe_color, 1.0 - d), 1);
+    color = vec4(mix(final_color, u_wireframe_color.rgb, 1.0 - d), 1);
 }

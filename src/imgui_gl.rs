@@ -11,6 +11,7 @@ pub struct ImGuiGl {
     vertex_buffer : GLuint,
     index_buffer : GLuint,
 }
+
 impl Drop for ImGuiGl {
     fn drop(&mut self) {
         unsafe{
@@ -52,7 +53,7 @@ impl ImGuiGl {
                 gl::PixelStorei(gl::UNPACK_ROW_LENGTH,0 );
                 gl::TexImage2D(gl::TEXTURE_2D, 0, gl::RGBA as i32, width,height, 0, gl::RGBA, gl::UNSIGNED_BYTE, font_tex.pixels.as_ptr() as *const std::ffi::c_void);
             }
-            helpers::check_gl_errors();
+            helpers::log_gl_errors();
 
             return texture;
         });
@@ -72,8 +73,9 @@ impl ImGuiGl {
 
         // Create the program
         let program = crate::pipeline::Pipeline::create_simple(include_bytes!("../shaders/imgui.vert"), include_bytes!("../shaders/imgui.frag")).unwrap();
-        helpers::check_gl_errors();
+        helpers::log_gl_errors();
         program.flush();
+        helpers::log_gl_errors();
 
         ImGuiGl{
             font_textures: vec![result],
@@ -197,7 +199,7 @@ impl ImGuiGl {
                 gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.index_buffer);
                 use crate::pipeline::ShaderUniform;
                 self.program.set_uniform("u_proj", ShaderUniform::Mat4((*proj).into()));
-                self.program.set_uniform("u_font", ShaderUniform::Int(0));
+                self.program.set_uniform("u_font", ShaderUniform::Sampler2D(self.font_textures[0]));
                 self.program.flush();
             }
 

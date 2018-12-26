@@ -1,25 +1,29 @@
+/// # Wireframe-rs
+/// ---
+/// A simple app to demonstrate different kinds of wireframe renderings using opengl
 extern crate assimp;
 extern crate gl;
 extern crate imgui;
 extern crate nalgebra_glm as na;
-/// This app demonstrates different ways of rendering wireframes
-///
 extern crate sdl2;
 extern crate time;
 extern crate regex;
 
+// MODULES
 mod pipeline;
 mod device;
 mod imgui_gl;
 
-use crate::pipeline::Pipeline;
-
+// Imports
 use imgui::ImGui;
-use std::ffi::CString;
-use std::mem;
 use time::PreciseTime;
 
 use gl::types::*;
+
+use std::sync::Arc;
+
+
+use crate::pipeline::{ ShaderUniform, Pipeline};
 
 // Mode to control what program to use
 enum WireframeMode {
@@ -57,15 +61,14 @@ fn main() {
         .unwrap();
 
     // Create the GL device
-    use crate::device::Device;
-    let gl : Box<dyn Device> = Box::new(crate::device::GLDevice::for_sdl2(&window).unwrap());
+    let mut gl = device::create_default_device(&window);
 
     // Enable opengl callbacks
-    gl.enable_debug_layer().expect("Failed to enable debugging capabilities!");
+    gl.borrow().enable_debug_layer().expect("Failed to enable debugging capabilities!");
 
     // Disable vsync
     video_subsystem
-        .gl_set_swap_interval(0)
+        .gl_set_swap_interval(1)
         .expect("Failed to set swap interval.");
 
 
@@ -81,11 +84,9 @@ fn main() {
     // Create the default shader programs
     let default_vert = include_bytes!("../shaders/default.vert");
     let default_frag = include_bytes!("../shaders/default.frag");
-    let mut default_program = Pipeline::create_simple(default_vert, default_frag).unwrap();
-    default_program.flush();
-
-    let mut wireframe_program = Pipeline::create_simple(default_vert, include_bytes!("../shaders/wireframe.frag")).expect("Failed to create the wireframe program.");
-    let mut wireframe_singlepass = Pipeline::create_simple_with_geom(default_vert, include_bytes!("../shaders/default.geom"), include_bytes!("../shaders/default_wireframe.frag")).expect("Failed to create singlepass wireframe");
+    let mut default_program = Arc::new(Pipeline::create_simple(default_vert, default_frag).unwrap());
+    let mut wireframe_program = Arc::new(Pipeline::create_simple(default_vert, include_bytes!("../shaders/wireframe.frag")).expect("Failed to create the wireframe program."));
+    let mut wireframe_singlepass = Arc::new(Pipeline::create_simple_with_geom(default_vert, include_bytes!("../shaders/default.geom"), include_bytes!("../shaders/default_wireframe.frag")).expect("Failed to create singlepass wireframe"));
 
     println!(
         "Shader compiling and setup took {}ms",
@@ -95,73 +96,9 @@ fn main() {
     // Load our mesh and setup buffers
 
     let mesh_process_start = PreciseTime::now();
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
-    {
-        use assimp::Importer;
-        let importer = Importer::new();
-        // let scene = importer.read_file("assets/cube.obj").unwrap();
-        let scene = importer.read_file("assets/suzanne.obj").unwrap();
-        println!("Loaded scene with {} meshes", scene.num_meshes());
 
-        let first_mesh = scene.mesh(0).unwrap();
-        println!(
-            "{} vertices, {} faces",
-            first_mesh.num_vertices(),
-            first_mesh.num_faces()
-        );
+    let (vertices,indices) = load_mesh("assets/suzanne.obj").expect("Failed to load model from disk!");
 
-        for i in 0..first_mesh.num_vertices() {
-            let mut pos = assimp::Vector3D::new(0.0, 0.0, 0.0);
-            let mut norm = assimp::Vector3D::new(0.0, 0.0, 0.0);
-            let mut tan = assimp::Vector3D::new(0.0, 0.0, 0.0);
-            let mut bitangent = assimp::Vector3D::new(0.0, 0.0, 0.0);
-
-            if first_mesh.has_positions() {
-                pos = first_mesh.get_vertex(i).unwrap();
-            }
-
-            if first_mesh.has_normals() {
-                norm = first_mesh.get_normal(i).unwrap();
-            }
-
-            if first_mesh.has_tangents_and_bitangents() {
-                tan = first_mesh.get_tangent(i).unwrap();
-                bitangent = first_mesh.get_bitangent(i).unwrap();
-            }
-
-            vertices.push(GlVert {
-                pos: [pos.x, pos.y, pos.z, 1.0],
-                norm: [norm.x, norm.y, norm.z, 0.0],
-                tangent: [tan.x, tan.y, tan.z, 0.0],
-                bitangent: [bitangent.x, bitangent.y, bitangent.z, 0.0],
-                uv: [0.0, 0.0],
-            });
-        }
-        for face in first_mesh.face_iter() {
-            // Triangulate?
-            if face.num_indices == 4 {
-                let i0 = face[0];
-                let i1 = face[1];
-                let i2 = face[2];
-                let i3 = face[3];
-                indices.push(i0);
-                indices.push(i1);
-                indices.push(i2);
-
-                indices.push(i0);
-                indices.push(i2);
-                indices.push(i3);
-            } else {
-                let i0 = face[0];
-                let i1 = face[1];
-                let i2 = face[2];
-                indices.push(i0);
-                indices.push(i1);
-                indices.push(i2);
-            }
-        }
-    }
     let mesh_process_end = PreciseTime::now();
     println!(
         "Loading and processing the mesh took {}ms",
@@ -237,6 +174,13 @@ fn main() {
 
     let mut line_color = [0.0,0.0,0.0,1.0];
     let mut solid_color = [1.0,1.0,1.0,1.0];
+
+    let mut command_list = gl.borrow().create_command_list();
+    command_list.bind_pipeline(&default_program);
+    command_list.bind_vertex_buffers(0, 1, &[suzanne_vertex_buffer], &[0]);
+    command_list.bind_index_buffer(&suzanne_index_buffer, 0, device::IndexType::UnsignedInt);
+    command_list.draw_indexed(indices.len() as u32, 1, 0,0,0);
+
     // Run the application
     'app: loop {
         let prev_time = curr_time;
@@ -304,28 +248,26 @@ fn main() {
             // Render our loaded mesh
             gl::BindVertexArray(suzanne_vao);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, suzanne_index_buffer);
-            use crate::pipeline::ShaderUniform;
+
+            // Execute rendering code for certain modes
             match draw_mode {
                 WireframeMode::None => {
                     // First draw
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
-                    gl::UseProgram(default_program.program());
-                    default_program.set_uniform("model", ShaderUniform::Mat4(model.into()));
-                    default_program.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
+
+                    // Manually update some uniforms
+                    let p = &default_program;
+                    p.set_uniform("model", ShaderUniform::Mat4(model.into()));
+                    p.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
                     default_program.flush();
 
-                    gl::DrawElements(
-                        gl::TRIANGLES,
-                        indices.len() as GLsizei,
-                        gl::UNSIGNED_INT,
-                        std::ptr::null(),
-                    );
+                    // Execute the command list
+                    command_list.execute(&gl);
                 },
                 WireframeMode::SinglePass | WireframeMode::SinglePassCorrection => {
 
                     gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
                     gl::UseProgram(wireframe_singlepass.program());
-                    use crate::pipeline::ShaderUniform;
                     wireframe_singlepass.set_uniform("u_line_thickness", ShaderUniform::Float(line_thickness));
                     match draw_mode {
                         WireframeMode::SinglePassCorrection => {
@@ -338,6 +280,8 @@ fn main() {
 
                     wireframe_singlepass.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
                     wireframe_singlepass.set_uniform("model", ShaderUniform::Mat4(model.into()));
+                    wireframe_singlepass.set_uniform("u_object_color", ShaderUniform::Float4(solid_color.into()));
+                    wireframe_singlepass.set_uniform("u_wireframe_color", ShaderUniform::Float4(line_color.into()));
                     wireframe_singlepass.flush();
                     // gl.draw_indexed()
                     gl::DrawElements(
@@ -423,23 +367,36 @@ mod helpers {
         buffer
     }
 
+    pub fn log_gl_errors() {
+        if let Err(errors) = check_gl_errors() {
+            for e in errors {
+                println!("GL ERROR: {}", e);
+            }
+        }
+    }
     /// Checks if any opengl errors occurred (flushes the error log)
-    pub fn check_gl_errors() {
+    pub fn check_gl_errors() -> Result<(), Vec<GLuint>> {
         debug_assert!(gl::GetError::is_loaded());
+        let mut v = Vec::new();
         unsafe {
             let mut result = gl::GetError();
             while result != gl::NO_ERROR {
-                println!("OpenGL error {:?}", result);
-
+                v.push(result);
                 result = gl::GetError();
             }
         }
+
+        if v.len() != 0 {
+            return Err(v);
+        }
+
+        return Ok(());
     }
 
 }
 mod shaders {
     use gl::types::*;
-    use std::ffi::{CStr, CString};
+    use std::ffi::CString;
 
     pub fn shader_from_source(source: &CString, kind: GLuint) -> Result<GLuint, String> {
         let id = unsafe { gl::CreateShader(kind) };
@@ -543,4 +500,78 @@ impl GlVert {
         gl::BindBuffer(gl::ARRAY_BUFFER, 0);
         vao
     }
+}
+
+fn load_mesh(path : &str) -> Result<(Vec<GlVert>, Vec<u32>), String> {
+    use assimp::Importer;
+
+    let importer = Importer::new();
+    let scene = importer.read_file(path)?;
+    println!("Loaded scene with {} meshes", scene.num_meshes());
+
+    if scene.mesh(0).is_none() {
+        return Err(String::from("Failed to find a mesh on index 0"));
+    }
+
+    let first_mesh = scene.mesh(0).unwrap();
+    println!(
+        "{} vertices, {} faces",
+        first_mesh.num_vertices(),
+        first_mesh.num_faces()
+    );
+
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    for i in 0..first_mesh.num_vertices() {
+        let mut pos = assimp::Vector3D::new(0.0, 0.0, 0.0);
+        let mut norm = assimp::Vector3D::new(0.0, 0.0, 0.0);
+        let mut tan = assimp::Vector3D::new(0.0, 0.0, 0.0);
+        let mut bitangent = assimp::Vector3D::new(0.0, 0.0, 0.0);
+
+        if first_mesh.has_positions() {
+            pos = first_mesh.get_vertex(i).unwrap();
+        }
+
+        if first_mesh.has_normals() {
+            norm = first_mesh.get_normal(i).unwrap();
+        }
+
+        if first_mesh.has_tangents_and_bitangents() {
+            tan = first_mesh.get_tangent(i).unwrap();
+            bitangent = first_mesh.get_bitangent(i).unwrap();
+        }
+
+        vertices.push(GlVert {
+            pos: [pos.x, pos.y, pos.z, 1.0],
+            norm: [norm.x, norm.y, norm.z, 0.0],
+            tangent: [tan.x, tan.y, tan.z, 0.0],
+            bitangent: [bitangent.x, bitangent.y, bitangent.z, 0.0],
+            uv: [0.0, 0.0],
+        });
+    }
+    for face in first_mesh.face_iter() {
+        // Triangulate?
+        if face.num_indices == 4 {
+            let i0 = face[0];
+            let i1 = face[1];
+            let i2 = face[2];
+            let i3 = face[3];
+            indices.push(i0);
+            indices.push(i1);
+            indices.push(i2);
+
+            indices.push(i0);
+            indices.push(i2);
+            indices.push(i3);
+        } else {
+            let i0 = face[0];
+            let i1 = face[1];
+            let i2 = face[2];
+            indices.push(i0);
+            indices.push(i1);
+            indices.push(i2);
+        }
+    }
+
+    Ok((vertices,indices))
 }
