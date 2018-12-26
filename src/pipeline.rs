@@ -8,8 +8,14 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
+#[derive(Copy, Clone)]
+pub enum FillMode {
+    Lines,
+    Fill
+}
 /// Available shader stages that are implemented
-enum ShaderStage {
+#[derive(Copy, Clone)]
+pub enum ShaderStage {
     Vertex,
     Fragment,
     Geometry,
@@ -98,6 +104,7 @@ pub struct Pipeline {
     // Graphics pipeline properties
     depth_test : bool,
     blend_enabled : bool,
+    fill_mode : FillMode,
     primitive_topology : PrimitiveTopology,
 
     // Collection of shader uniforms found when creating the pipeline
@@ -111,7 +118,12 @@ impl Pipeline {
     pub fn primitive_topology(&self) -> PrimitiveTopology { self.primitive_topology }
     pub fn depth_test(&self) -> bool { self.depth_test }
     pub fn blend_enabled(&self) -> bool { self.blend_enabled }
+    pub fn fill_mode(&self) -> FillMode { self.fill_mode }
     pub fn program(&self) -> GLuint { self.program }
+
+    pub fn set_blending(&mut self, enabled : bool) { self.blend_enabled = enabled; }
+    pub fn set_depth_test(&mut self, enabled : bool) { self.depth_test = enabled; }
+    pub fn set_fill_mode(&mut self, mode : FillMode) { self.fill_mode = mode; }
 
     pub fn set_uniform(&self, name : &str, uniform : ShaderUniform) {
         let uniform_type = uniform.get_type();
@@ -195,6 +207,7 @@ impl Pipeline {
             Pipeline{
                 blend_enabled: false,
                 depth_test: true,
+                fill_mode: FillMode::Fill,
                 primitive_topology: PrimitiveTopology::Triangles,
                 program,
                 uniforms: RefCell::new(uniforms),
@@ -231,6 +244,7 @@ impl Pipeline {
             Pipeline{
                 blend_enabled: false,
                 depth_test: true,
+                fill_mode: FillMode::Fill,
                 primitive_topology: PrimitiveTopology::Triangles,
                 program,
                 uniforms: RefCell::new(uniforms),

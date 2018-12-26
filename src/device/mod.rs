@@ -44,7 +44,7 @@ pub enum IndexType {
 }
 pub trait CommandList {
     fn execute(&self, device : &DeviceHandle);
-    fn clear(&mut self);
+    fn clear(&mut self, clear_color : [f32; 4], depth : Option<f32>);
 
     fn draw(&mut self, vertex_count : u32, instance_count : u32, first_vertex : u32, first_instance : u32);
     fn draw_indexed(&mut self, index_count : u32, instance_count : u32, first_index : u32, vertex_offset : u32, first_instance : u32);

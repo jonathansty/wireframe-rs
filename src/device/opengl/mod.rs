@@ -108,8 +108,33 @@ impl CommandList for GLCommandList {
         }
     }
 
-    fn clear(&mut self) {
-        self.commands.clear();
+    fn clear(&mut self, color : [f32;4], depth : Option<f32>) {
+        struct Cmd {
+            clear_color: bool,
+            color : [f32;4],
+            depth : Option<f32>,
+        }
+
+        unsafe impl GLCommand for Cmd {
+            unsafe fn execute(&self) {
+                let mut clear_bits = 0;
+                if self.clear_color {
+                    clear_bits = clear_bits | gl::COLOR_BUFFER_BIT;
+                    gl::ClearColor(self.color[0], self.color[1], self.color[2], self.color[3]);
+                }
+                if let Some(d) = self.depth {
+                    clear_bits = clear_bits | gl::DEPTH_BUFFER_BIT;
+                    gl::ClearDepthf(d);
+                }
+                gl::Clear(clear_bits);
+            }
+        }
+
+        self.commands.push(Box::new( Cmd {
+            clear_color: true,
+            color,
+            depth,
+        }));
     }
 
     fn draw(&mut self, vertex_count : u32, instance_count : u32, first_vertex : u32, first_instance : u32){
@@ -178,6 +203,7 @@ impl CommandList for GLCommandList {
             program : GLuint,
             blend_enabled : bool,
             depth_test : bool,
+            fill_mode : GLenum,
         }; 
 
         unsafe impl GLCommand for Command {
@@ -186,6 +212,9 @@ impl CommandList for GLCommandList {
                 // Do the pipeline it's state
                 helpers::gl_set_enabled(gl::DEPTH_TEST,self.depth_test);
                 helpers::gl_set_enabled(gl::BLEND,self.blend_enabled);
+                
+                gl::CullFace(gl::BACK);
+                gl::PolygonMode(gl::FRONT_AND_BACK, self.fill_mode);
 
                 gl::UseProgram(self.program);
 
@@ -195,10 +224,17 @@ impl CommandList for GLCommandList {
 
 
         self.active_pipeline =  Arc::into_raw(pipeline.clone());
+        use crate::pipeline::FillMode;
+        let fill_mode = match pipeline.fill_mode() {
+            FillMode::Fill => gl::FILL,
+            FillMode::Lines => gl::LINE,
+        };
+
         self.commands.push(Box::new( Command {
             program: pipeline.program(),
             blend_enabled: pipeline.blend_enabled(),
-            depth_test: pipeline.depth_test()
+            depth_test: pipeline.depth_test(),
+            fill_mode
         }));
     }
     

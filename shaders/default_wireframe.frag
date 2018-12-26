@@ -36,5 +36,7 @@ void main() {
     float d = min(coord.x, min(coord.y, coord.z));
     d = smoothstep(u_line_thickness, u_line_thickness + u_falloff, d);
 
-    color = vec4(mix(final_color, u_wireframe_color.rgb, 1.0 - d), 1);
+    float wireframe_blend = 1.0 - d;
+    float alpha_blend = u_wireframe_color.a;
+    color = vec4(mix(final_color, u_wireframe_color.rgb, (1.0 - d)*alpha_blend), 1);
 }

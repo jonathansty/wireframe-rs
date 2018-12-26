@@ -84,9 +84,15 @@ fn main() {
     // Create the default shader programs
     let default_vert = include_bytes!("../shaders/default.vert");
     let default_frag = include_bytes!("../shaders/default.frag");
-    let mut default_program = Arc::new(Pipeline::create_simple(default_vert, default_frag).unwrap());
-    let mut wireframe_program = Arc::new(Pipeline::create_simple(default_vert, include_bytes!("../shaders/wireframe.frag")).expect("Failed to create the wireframe program."));
-    let mut wireframe_singlepass = Arc::new(Pipeline::create_simple_with_geom(default_vert, include_bytes!("../shaders/default.geom"), include_bytes!("../shaders/default_wireframe.frag")).expect("Failed to create singlepass wireframe"));
+
+    let default_program = Arc::new(Pipeline::create_simple(default_vert, default_frag).unwrap());
+    let wireframe_program = Arc::new({
+        let mut p = Pipeline::create_simple(default_vert, include_bytes!("../shaders/wireframe.frag")).expect("Failed to create the wireframe program.");
+        p.set_fill_mode(crate::pipeline::FillMode::Lines);
+        p.set_depth_test(false);
+        p
+    });
+    let wireframe_singlepass = Arc::new(Pipeline::create_simple_with_geom(default_vert, include_bytes!("../shaders/default.geom"), include_bytes!("../shaders/default_wireframe.frag")).expect("Failed to create singlepass wireframe"));
 
     println!(
         "Shader compiling and setup took {}ms",
@@ -160,8 +166,6 @@ fn main() {
         &na::Vec3::new(0.0, 0.0, 0.0),
         &na::Vec3::new(0.0, 1.0, 0.0),
     );
-    let model = na::Mat4::new_translation(&na::Vec3::new(0.0, 0.0, 0.0));
-
 
     // Record the start timings
     let _start_time = time::precise_time_s();
@@ -175,11 +179,37 @@ fn main() {
     let mut line_color = [0.0,0.0,0.0,1.0];
     let mut solid_color = [1.0,1.0,1.0,1.0];
 
-    let mut command_list = gl.borrow().create_command_list();
-    command_list.bind_pipeline(&default_program);
-    command_list.bind_vertex_buffers(0, 1, &[suzanne_vertex_buffer], &[0]);
-    command_list.bind_index_buffer(&suzanne_index_buffer, 0, device::IndexType::UnsignedInt);
-    command_list.draw_indexed(indices.len() as u32, 1, 0,0,0);
+    // Create some command lists.
+    let clear_color = [0.5,0.5,0.5,1.0];
+    let mut default_list = gl.borrow().create_command_list();
+    {
+        default_list.clear(clear_color, None);
+        default_list.bind_pipeline(&default_program);
+        default_list.bind_vertex_buffers(0, 1, &[suzanne_vertex_buffer], &[0]);
+        default_list.bind_index_buffer(&suzanne_index_buffer, 0, device::IndexType::UnsignedInt);
+        default_list.draw_indexed(indices.len() as u32, 1, 0,0,0);
+    }
+
+    let mut singlepass_list = gl.borrow().create_command_list();
+    {
+        singlepass_list.clear(clear_color, None);
+        singlepass_list.bind_pipeline(&wireframe_singlepass);
+        singlepass_list.bind_vertex_buffers(0, 1, &[suzanne_vertex_buffer], &[0]);
+        singlepass_list.bind_index_buffer(&suzanne_index_buffer, 0, device::IndexType::UnsignedInt);
+        singlepass_list.draw_indexed(indices.len() as u32, 1, 0,0,0);
+    }
+
+    let mut multipass_list = gl.borrow().create_command_list();
+    {
+        multipass_list.clear(clear_color, None);
+        multipass_list.bind_pipeline(&default_program);
+        multipass_list.bind_vertex_buffers(0, 1, &[suzanne_vertex_buffer], &[0]);
+        multipass_list.bind_index_buffer(&suzanne_index_buffer, 0, device::IndexType::UnsignedInt);
+        multipass_list.draw_indexed(indices.len() as u32, 1, 0,0,0);
+
+        multipass_list.bind_pipeline(&wireframe_program);
+        multipass_list.draw_indexed(indices.len() as u32, 1, 0,0,0);
+    }
 
     // Run the application
     'app: loop {
@@ -242,6 +272,8 @@ fn main() {
 
         unsafe {
             gl::Viewport(0, 0, size.0 as i32, size.1 as i32);
+            // gl.borrow().set_viewport(0,0, size.0 as i32, size.1 as i32);
+            // gl.borrow().clear([0.0,0.0,0.0,0.0],0.0);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
             let final_mat = projection * &view * model;
@@ -262,12 +294,9 @@ fn main() {
                     default_program.flush();
 
                     // Execute the command list
-                    command_list.execute(&gl);
+                    default_list.execute(&gl);
                 },
                 WireframeMode::SinglePass | WireframeMode::SinglePassCorrection => {
-
-                    gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
-                    gl::UseProgram(wireframe_singlepass.program());
                     wireframe_singlepass.set_uniform("u_line_thickness", ShaderUniform::Float(line_thickness));
                     match draw_mode {
                         WireframeMode::SinglePassCorrection => {
@@ -277,50 +306,26 @@ fn main() {
                             wireframe_singlepass.set_uniform("u_correction", ShaderUniform::Int(0));
                         }
                     }
-
                     wireframe_singlepass.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
                     wireframe_singlepass.set_uniform("model", ShaderUniform::Mat4(model.into()));
                     wireframe_singlepass.set_uniform("u_object_color", ShaderUniform::Float4(solid_color.into()));
                     wireframe_singlepass.set_uniform("u_wireframe_color", ShaderUniform::Float4(line_color.into()));
                     wireframe_singlepass.flush();
-                    // gl.draw_indexed()
-                    gl::DrawElements(
-                        gl::TRIANGLES,
-                        indices.len() as GLsizei,
-                        gl::UNSIGNED_INT,
-                        std::ptr::null(),
-                    );
+
+                    singlepass_list.execute(&gl);
                 }
                 WireframeMode::MultiPass => {
-                    // First draw
-                    gl::PolygonMode(gl::FRONT_AND_BACK, gl::FILL);
-                    gl::UseProgram(default_program.program());
-                    default_program.set_uniform("model", ShaderUniform::Mat4(model.into()));
+                    //#TODO: Rebuild command list if needed?
                     default_program.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
-                    default_program.flush();
-                    gl::DrawElements(
-                        gl::TRIANGLES,
-                        indices.len() as GLsizei,
-                        gl::UNSIGNED_INT,
-                        std::ptr::null(),
-                    );
+                    default_program.set_uniform("model", ShaderUniform::Mat4(model.into()));
 
-                    // Second draw
-                    gl::Disable(gl::DEPTH_TEST);
-                    gl::LineWidth(line_thickness);
-                    gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
-                    gl::UseProgram(wireframe_program.program());
-                    use crate::pipeline::ShaderUniform;
                     wireframe_program.set_uniform("projection", ShaderUniform::Mat4(final_mat.into()));
                     wireframe_program.set_uniform("model", ShaderUniform::Mat4(model.into()));
+
+                    default_program.flush();
                     wireframe_program.flush();
-                    gl::DrawElements(
-                        gl::TRIANGLES,
-                        indices.len() as GLsizei,
-                        gl::UNSIGNED_INT,
-                        std::ptr::null(),
-                    );
-                    gl::Enable(gl::DEPTH_TEST);
+                    gl::LineWidth(line_thickness);
+                    multipass_list.execute(&gl);
                 }
             }
 
