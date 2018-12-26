@@ -104,6 +104,15 @@ fn main() {
     let mesh_process_start = PreciseTime::now();
 
     let (vertices,indices) = load_mesh("assets/suzanne.obj").expect("Failed to load model from disk!");
+    let mut active_mesh_index = 0;
+    let mesh_list = [
+        "assets/suzanne.obj",
+        "assets/cube.obj",
+    ];
+    let mesh_labels = vec![
+        imgui::im_str!("Suzanne"),
+        imgui::im_str!("Cube")
+    ];
 
     let mesh_process_end = PreciseTime::now();
     println!(
@@ -144,10 +153,6 @@ fn main() {
     );
 
     let mut event_pump = sdl.event_pump().unwrap();
-    unsafe {
-        gl::ClearColor(0.3, 0.3, 0.3, 1.0);
-    }
-
     // Set some default states
     unsafe {
         gl::CullFace(gl::BACK);
@@ -180,7 +185,7 @@ fn main() {
     let mut solid_color = [1.0,1.0,1.0,1.0];
 
     // Create some command lists.
-    let clear_color = [0.5,0.5,0.5,1.0];
+    let clear_color = [0.3,0.3,0.3,1.0];
     let mut default_list = gl.borrow().create_command_list();
     {
         default_list.clear(clear_color, None);
@@ -251,9 +256,12 @@ fn main() {
             use imgui::im_str;
             use imgui::ImGuiCond;
 
+            let prv_mesh = active_mesh_index;
             ui.window(im_str!("Wireframe-rs"))
                 .size((300.0, 100.0), ImGuiCond::FirstUseEver)
                 .build(|| {
+                    ui.combo(im_str!("Mesh"), &mut active_mesh_index, &mesh_labels,10);
+
                     ui.combo(im_str!("Draw mode"), &mut curr_item, &[im_str!("Default"), im_str!("Singlepass"), im_str!("Singlepass correction"), im_str!("Multipass")], 10);
                     ui.slider_float(im_str!("Line thickness"), &mut line_thickness, 0.001, 1.0).build();
 
@@ -261,6 +269,30 @@ fn main() {
                     ui.color_edit(im_str!("Solid color"), &mut solid_color ).build();
                     ui.color_edit(im_str!("Wireframe color"), &mut line_color ).build();
                 });
+
+            if prv_mesh != active_mesh_index {
+                // Reconstruct the mesh
+                let (vertices,indices) = load_mesh(mesh_list[active_mesh_index as usize]).unwrap();
+                unsafe {
+                    gl::BindBuffer(gl::ARRAY_BUFFER, suzanne_vertex_buffer);
+                    let buffer_size = vertices.len() * std::mem::size_of::<GlVert>();
+                    gl::BufferData(
+                        gl::ARRAY_BUFFER,
+                        buffer_size as isize,
+                        vertices.as_ptr() as *const std::ffi::c_void,
+                        gl::STATIC_DRAW,
+                    );
+
+                    gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, suzanne_index_buffer);
+                    let buffer_size = indices.len() * std::mem::size_of::<u32>();
+                    gl::BufferData(
+                        gl::ELEMENT_ARRAY_BUFFER,
+                        buffer_size as isize,
+                        indices.as_ptr() as *const std::ffi::c_void,
+                        gl::STATIC_DRAW,
+                    );
+                }
+            }
 
             // Update draw mode using the IMGUI result
             draw_mode = WireframeMode::from_int(curr_item as u32);
