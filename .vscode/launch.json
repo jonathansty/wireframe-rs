@@ -5,6 +5,19 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "type": "lldb",
+            "request": "launch",
+            "name": "LLDB: Wireframe",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin", "wireframe"
+                ]
+            },
+            "program": "${cargo:program}",
+            "args": []
+        },
+        {
             "name": "(Windows) Launch",
             "type": "cppvsdbg",
             "request": "launch",

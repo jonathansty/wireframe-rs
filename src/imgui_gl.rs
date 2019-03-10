@@ -99,19 +99,19 @@ impl ImGuiGl {
             },
             Event::KeyDown{keycode, scancode, keymod, .. } => {
                 imgui.set_key(keycode.unwrap() as u8, true);
-                let ctrl_down = keymod.contains(sdl2::keyboard::LCTRLMOD);
+                let ctrl_down = keymod.contains(sdl2::keyboard::Mod::LCTRLMOD);
                 imgui.set_key_ctrl(ctrl_down);
 
-                let shift_down = keymod.contains(sdl2::keyboard::LSHIFTMOD);
+                let shift_down = keymod.contains(sdl2::keyboard::Mod::LSHIFTMOD);
                 imgui.set_key_shift(shift_down);
             },
             Event::KeyUp{keycode, scancode, keymod, .. } => {
                 imgui.set_key(keycode.unwrap() as u8, false);
 
-                let ctrl_down = keymod.contains(sdl2::keyboard::LCTRLMOD);
+                let ctrl_down = keymod.contains(sdl2::keyboard::Mod::LCTRLMOD);
                 imgui.set_key_ctrl(ctrl_down);
 
-                let shift_down = keymod.contains(sdl2::keyboard::LSHIFTMOD);
+                let shift_down = keymod.contains(sdl2::keyboard::Mod::LSHIFTMOD);
                 imgui.set_key_shift(shift_down);
             },
             Event::MouseMotion{x,y,.. } => {

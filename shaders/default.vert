@@ -11,6 +11,7 @@ layout(location = 1) out vec4 out_tangent;
 layout(location = 2) out vec4 out_bitangent;
 layout(location = 3) out vec2 out_uv;
 layout(location = 4) out vec3 out_world_normal;
+layout(location = 5) out vec3 out_coord;
 
 uniform mat4 projection;
 uniform mat4 model;
