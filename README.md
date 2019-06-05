@@ -1,7 +1,8 @@
 # Wireframe-rs
-![app screenshot](https://github.com/jonathansty/wireframe-rs/raw/master/resources/image-1.png "Application screenshot")
 A small sample application showing different wireframe rendering techniques. 
-The application can be used as an example on how to use open gltogether with rust.
+The application can be used as an example on how to use opengl together with rust.
+
+![app screenshot](https://github.com/jonathansty/wireframe-rs/raw/master/resources/image-1.png "Application screenshot")
 
 The application includes:
  - `sdl` for window creation
