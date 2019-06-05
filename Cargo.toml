@@ -12,7 +12,7 @@ imgui = "0.0.21"
 
 [dependencies.sdl2]
 version = "0.32"
-# features = ["bundled"]
+#features = ["bundled"]
 
 [dependencies.assimp]
 version= "0.3.1"
